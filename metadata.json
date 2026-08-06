@@ -1,0 +1,9 @@
+{
+  "name": "Smart Global Portal",
+  "description": "University management portal featuring public website and role-based access for Admins, Students, and Lecturers.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

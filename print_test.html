@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+</head>
+<body>
+<button onclick="openPrint()">Print</button>
+<script>
+function openPrint() {
+  const win = window.open('', '_blank');
+  win.document.write('Hello World');
+  win.document.close();
+  win.print();
+}
+</script>
+</body>
+</html>

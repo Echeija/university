@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@layer utilities {
+  .animate-ticker {
+    animation: ticker 40s linear infinite;
+  }
+  
+  .animate-ticker:hover {
+    animation-play-state: paused;
+  }
+  
+  @keyframes ticker {
+    0% {
+      transform: translateX(0);
+    }
+    100% {
+      transform: translateX(-50%);
+    }
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #print-area, #print-area * {
+    visibility: visible;
+  }
+  #print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+}
+
+
+html.text-scale-normal {
+  font-size: 100%;
+}
+html.text-scale-large {
+  font-size: 110%;
+}
+html.text-scale-extra-large {
+  font-size: 125%;
+}
+
+html.high-contrast {
+  filter: contrast(1.3) saturate(1.2);
+}
