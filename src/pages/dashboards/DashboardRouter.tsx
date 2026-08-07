@@ -1,4 +1,5 @@
 import AlertsNotifications from "./AlertsNotifications";
+import CalendarDashboard from "./calendar/CalendarDashboard";
 import LiveLecture from './LiveLecture';
 import LecturerResultUpload from './lecturer/LecturerResultUpload';
 import LecturerContinuousAssessment from './lecturer/LecturerContinuousAssessment';
@@ -37,6 +38,7 @@ import ResearchLabBooking from './student/ResearchLabBooking';
 import MentorshipMatching from './student/MentorshipMatching';
 import TranscriptRequest from './student/TranscriptRequest';
 import DegreeAudit from './student/DegreeAudit';
+import StudentMandatoryDocuments from './student/StudentMandatoryDocuments';
 import StudentDashboard from './student/StudentDashboard';
 import UserProfileSettings from './UserProfileSettings';
 import SessionManager from '../../components/SessionManager';
@@ -308,6 +310,10 @@ export default function DashboardRouter() {
                             <Link to="/dashboard/digital-id" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/digital-id') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
                 <ScanLine className="w-5 h-5 opacity-75" />
                 Digital Student ID
+              </Link>
+              <Link to="/dashboard/mandatory-documents" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/mandatory-documents') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
+                <FolderOpen className="w-5 h-5 opacity-75" />
+                Mandatory Documents
               </Link>
               <Link to="/dashboard/live-lecture" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/live-lecture') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
                 <MonitorPlay className="w-5 h-5 opacity-75" />
@@ -660,6 +666,7 @@ export default function DashboardRouter() {
             <Route path="/degree-audit" element={<DegreeAudit />} />
             
             <Route path="/digital-id" element={<DigitalStudentID />} />
+            <Route path="/mandatory-documents" element={<StudentMandatoryDocuments />} />
             <Route path="/hostel" element={<HostelApplication />} />
             <Route path="/manage-hostels" element={<ManageHostels />} />
             <Route path="/hostel-applications" element={<HostelApplications />} />
@@ -668,7 +675,8 @@ export default function DashboardRouter() {
             <Route path="/academic" element={<AcademicDashboard />} />
             <Route path="/messages" element={<MessagesPortal />} />
             <Route path="/alerts" element={<AlertsNotifications />} />
-                        <Route path="/live-lecture" element={<LiveLecture />} />
+            <Route path="/calendar" element={<CalendarDashboard />} />
+            <Route path="/live-lecture" element={<LiveLecture />} />
             <Route path="/result-upload" element={<LecturerResultUpload />} />
             <Route path="/continuous-assessment" element={<LecturerContinuousAssessment />} />
             <Route path="/assignments" element={<LecturerAssignments />} />

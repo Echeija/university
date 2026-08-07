@@ -1,6 +1,38 @@
 import express from "express";
 import multer from "multer";
 import fs from "fs";
+import http from "http";
+import { WebSocketServer, WebSocket } from "ws";
+
+interface ExtendedWebSocket extends WebSocket {
+  userId?: number;
+  isAlive?: boolean;
+}
+
+const userSockets = new Map<number, Set<ExtendedWebSocket>>();
+
+function notifyUser(userId: number, payload: any) {
+  const sockets = userSockets.get(userId);
+  if (sockets) {
+    const data = JSON.stringify(payload);
+    sockets.forEach(ws => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(data);
+      }
+    });
+  }
+}
+
+function broadcastUserStatus(userId: number, online: boolean) {
+  const payload = JSON.stringify({ type: 'presence', userId, online });
+  userSockets.forEach((sockets) => {
+    sockets.forEach(ws => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(payload);
+      }
+    });
+  });
+}
 
 // Ensure uploads directory exists
 const uploadDir = path.join(process.cwd(), 'uploads');
@@ -2542,6 +2574,193 @@ END:VCALENDAR
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Failed to return book' });
+    }
+  });
+
+  app.get("/api/student/mandatory-documents", requireAuth, async (req, res) => {
+    try {
+      const { studentMandatoryDocuments, users } = await import('./src/db/schema');
+      const { db } = await import('./src/db');
+      const { desc, eq } = await import('drizzle-orm');
+      
+      const userId = (req as any).user.id;
+      
+      const userDocs = await db.select({
+        id: studentMandatoryDocuments.id,
+        studentId: studentMandatoryDocuments.studentId,
+        documentType: studentMandatoryDocuments.documentType,
+        title: studentMandatoryDocuments.title,
+        fileUrl: studentMandatoryDocuments.fileUrl,
+        fileType: studentMandatoryDocuments.fileType,
+        fileSize: studentMandatoryDocuments.fileSize,
+        status: studentMandatoryDocuments.status,
+        adminFeedback: studentMandatoryDocuments.adminFeedback,
+        reviewedById: studentMandatoryDocuments.reviewedById,
+        reviewedAt: studentMandatoryDocuments.reviewedAt,
+        uploadedAt: studentMandatoryDocuments.uploadedAt,
+      })
+      .from(studentMandatoryDocuments)
+      .where(eq(studentMandatoryDocuments.studentId, userId))
+      .orderBy(desc(studentMandatoryDocuments.uploadedAt));
+      
+      res.json(userDocs);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to fetch mandatory documents' });
+    }
+  });
+
+  app.post("/api/student/mandatory-documents", requireAuth, async (req, res) => {
+    try {
+      const { studentMandatoryDocuments, notifications } = await import('./src/db/schema');
+      const { db } = await import('./src/db');
+      const userId = (req as any).user.id;
+      const { documentType, title, fileUrl, fileSize, fileType } = req.body;
+
+      if (!documentType || !fileUrl) {
+        return res.status(400).json({ error: 'Document type and file are required' });
+      }
+
+      const [inserted] = await db.insert(studentMandatoryDocuments).values({
+        studentId: userId,
+        documentType,
+        title: title || `${documentType} Upload`,
+        fileUrl,
+        fileType: fileType || 'application/pdf',
+        fileSize: Number(fileSize) || 1024 * 500,
+        status: 'Pending',
+        uploadedAt: new Date()
+      }).returning();
+
+      // Create notification for student confirmation
+      try {
+        await db.insert(notifications).values({
+          userId: userId,
+          title: 'Document Submitted for Verification',
+          message: `Your ${documentType} has been successfully uploaded and is pending administrative review.`,
+          type: 'info',
+          isRead: 'false'
+        });
+      } catch (notifErr) {
+        console.error('Notification creation failed:', notifErr);
+      }
+
+      res.json(inserted);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to upload mandatory document' });
+    }
+  });
+
+  app.delete("/api/student/mandatory-documents/:id", requireAuth, async (req, res) => {
+    try {
+      const { studentMandatoryDocuments } = await import('./src/db/schema');
+      const { db } = await import('./src/db');
+      const { eq, and } = await import('drizzle-orm');
+      const userId = (req as any).user.id;
+      const docId = Number(req.params.id);
+
+      await db.delete(studentMandatoryDocuments)
+        .where(and(eq(studentMandatoryDocuments.id, docId), eq(studentMandatoryDocuments.studentId, userId)));
+
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to delete document' });
+    }
+  });
+
+  app.get("/api/admin/mandatory-documents", requireAuth, async (req, res) => {
+    try {
+      const { studentMandatoryDocuments, users } = await import('./src/db/schema');
+      const { db } = await import('./src/db');
+      const { desc, eq } = await import('drizzle-orm');
+      const { alias } = await import('drizzle-orm/pg-core');
+
+      const reviewer = alias(users, 'reviewer');
+
+      const allDocs = await db.select({
+        id: studentMandatoryDocuments.id,
+        studentId: studentMandatoryDocuments.studentId,
+        documentType: studentMandatoryDocuments.documentType,
+        title: studentMandatoryDocuments.title,
+        fileUrl: studentMandatoryDocuments.fileUrl,
+        fileType: studentMandatoryDocuments.fileType,
+        fileSize: studentMandatoryDocuments.fileSize,
+        status: studentMandatoryDocuments.status,
+        adminFeedback: studentMandatoryDocuments.adminFeedback,
+        reviewedAt: studentMandatoryDocuments.reviewedAt,
+        uploadedAt: studentMandatoryDocuments.uploadedAt,
+        student: {
+          id: users.id,
+          name: users.name,
+          email: users.email,
+          username: users.username,
+          department: users.department,
+          profilePicture: users.profilePicture
+        },
+        reviewer: {
+          id: reviewer.id,
+          name: reviewer.name,
+          role: reviewer.role
+        }
+      })
+      .from(studentMandatoryDocuments)
+      .innerJoin(users, eq(studentMandatoryDocuments.studentId, users.id))
+      .leftJoin(reviewer, eq(studentMandatoryDocuments.reviewedById, reviewer.id))
+      .orderBy(desc(studentMandatoryDocuments.uploadedAt));
+
+      res.json(allDocs);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to fetch admin mandatory documents' });
+    }
+  });
+
+  app.put("/api/admin/mandatory-documents/:id/review", requireAuth, async (req, res) => {
+    try {
+      const { studentMandatoryDocuments, notifications } = await import('./src/db/schema');
+      const { db } = await import('./src/db');
+      const { eq } = await import('drizzle-orm');
+      const adminUserId = (req as any).user.id;
+      const docId = Number(req.params.id);
+      const { status, adminFeedback } = req.body;
+
+      if (!status || !['Approved', 'Rejected', 'Pending'].includes(status)) {
+        return res.status(400).json({ error: 'Valid status is required' });
+      }
+
+      const [updated] = await db.update(studentMandatoryDocuments)
+        .set({
+          status,
+          adminFeedback: adminFeedback || null,
+          reviewedById: adminUserId,
+          reviewedAt: new Date()
+        })
+        .where(eq(studentMandatoryDocuments.id, docId))
+        .returning();
+
+      if (updated) {
+        // Send notification to the student
+        try {
+          await db.insert(notifications).values({
+            userId: updated.studentId,
+            title: `Document Review: ${status}`,
+            message: status === 'Approved'
+              ? `Your ${updated.documentType} has been approved by the Administration.`
+              : `Action required for your ${updated.documentType}: ${adminFeedback || 'Please re-upload a clear copy.'}`,
+            type: status === 'Approved' ? 'info' : 'alert',
+            isRead: 'false'
+          });
+        } catch (notifErr) {
+          console.error('Failed notification log:', notifErr);
+        }
+      }
+
+      res.json(updated);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to update document review status' });
     }
   });
 
@@ -5426,6 +5645,12 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
       const medProfile: any = medRes[0] || {};
       
       res.json({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        username: user.username,
+        role: user.role,
+        department: user.department || 'Technology & Applied Sciences',
         phone: user.phone || '',
         profilePicture: user.profilePicture || '',
         emergencyContactName: medProfile.emergencyContactName || '',
@@ -5735,34 +5960,48 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
 // --- Messages API ---
 app.get("/api/messages", requireAuth, async (req, res) => {
   try {
-    const { messages, users } = await import('./src/db/schema');
+    const { messages, users, courses } = await import('./src/db/schema');
     const { db } = await import('./src/db');
-    const { eq, or, desc } = await import('drizzle-orm');
+    const { eq, or, desc, and } = await import('drizzle-orm');
     const { alias } = await import('drizzle-orm/pg-core');
     const userId = (req as any).user.id;
+    const { courseId } = req.query;
     
     const sender = alias(users, 'sender');
     const receiver = alias(users, 'receiver');
 
+    let conditions = or(eq(messages.senderId, userId), eq(messages.receiverId, userId));
+    if (courseId) {
+      conditions = and(conditions, eq(messages.courseId, Number(courseId)));
+    }
+
     const allMessages = await db.select({
       message: messages,
+      course: {
+        id: courses.id,
+        code: courses.code,
+        title: courses.title
+      },
       sender: {
         id: sender.id,
         name: sender.name,
         role: sender.role,
+        department: sender.department,
         profilePicture: sender.profilePicture
       },
       receiver: {
         id: receiver.id,
         name: receiver.name,
         role: receiver.role,
+        department: receiver.department,
         profilePicture: receiver.profilePicture
       }
     })
     .from(messages)
     .leftJoin(sender, eq(messages.senderId, sender.id))
     .leftJoin(receiver, eq(messages.receiverId, receiver.id))
-    .where(or(eq(messages.senderId, userId), eq(messages.receiverId, userId)))
+    .leftJoin(courses, eq(messages.courseId, courses.id))
+    .where(conditions)
     .orderBy(desc(messages.createdAt));
 
     res.json(allMessages);
@@ -5774,20 +6013,93 @@ app.get("/api/messages", requireAuth, async (req, res) => {
 
 app.post("/api/messages", requireAuth, async (req, res) => {
   try {
-    const { messages } = await import('./src/db/schema');
+    const { messages, users, courses } = await import('./src/db/schema');
     const { db } = await import('./src/db');
+    const { eq } = await import('drizzle-orm');
     const userId = (req as any).user.id;
+    const { receiverId, courseId, subject, content, attachmentUrl, attachmentName } = req.body;
     
-    const [newMessage] = await db.insert(messages).values({
-      ...req.body,
-      senderId: userId
+    if (!receiverId || !content) {
+      return res.status(400).json({ error: 'Receiver and content are required' });
+    }
+
+    const [inserted] = await db.insert(messages).values({
+      senderId: userId,
+      receiverId: Number(receiverId),
+      courseId: courseId ? Number(courseId) : null,
+      subject: subject || 'Course Inquiry',
+      content,
+      attachmentUrl: attachmentUrl || null,
+      attachmentName: attachmentName || null,
+      isRead: 'false',
+      createdAt: new Date()
     }).returning();
     
-    res.json(newMessage);
+    const [senderUser] = await db.select({ id: users.id, name: users.name, role: users.role, profilePicture: users.profilePicture }).from(users).where(eq(users.id, userId));
+    const [receiverUser] = await db.select({ id: users.id, name: users.name, role: users.role, profilePicture: users.profilePicture }).from(users).where(eq(users.id, Number(receiverId)));
+    let courseData = null;
+    if (courseId) {
+      const [c] = await db.select({ id: courses.id, code: courses.code, title: courses.title }).from(courses).where(eq(courses.id, Number(courseId)));
+      courseData = c || null;
+    }
+
+    const fullMessagePayload = {
+      message: inserted,
+      course: courseData,
+      sender: senderUser,
+      receiver: receiverUser
+    };
+
+    // WebSocket real-time dispatch
+    notifyUser(Number(receiverId), { type: 'new_message', data: fullMessagePayload });
+    notifyUser(userId, { type: 'new_message', data: fullMessagePayload });
+
+    // Notification table entry for persistent notification badge
+    try {
+      const { notifications } = await import('./src/db/schema');
+      await db.insert(notifications).values({
+        userId: Number(receiverId),
+        title: `New Message from ${senderUser?.name || 'User'}`,
+        message: content.length > 80 ? content.substring(0, 80) + '...' : content,
+        type: 'info',
+        isRead: 'false'
+      });
+    } catch (notifErr) {
+      console.error('Failed to create notification record:', notifErr);
+    }
+
+    res.json(fullMessagePayload);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Failed to send message' });
   }
+});
+
+app.post("/api/messages/mark-read", requireAuth, async (req, res) => {
+  try {
+    const { messages } = await import('./src/db/schema');
+    const { db } = await import('./src/db');
+    const { eq, and } = await import('drizzle-orm');
+    const userId = (req as any).user.id;
+    const { senderId } = req.body;
+
+    if (senderId) {
+      await db.update(messages)
+        .set({ isRead: 'true' })
+        .where(and(eq(messages.receiverId, userId), eq(messages.senderId, Number(senderId))));
+      
+      notifyUser(Number(senderId), { type: 'messages_read', byUserId: userId });
+    }
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to mark messages as read' });
+  }
+});
+
+app.get("/api/users/online", requireAuth, (req, res) => {
+  res.json(Array.from(userSockets.keys()));
 });
 
 app.get("/api/users/directory", requireAuth, async (req, res) => {
@@ -5801,6 +6113,7 @@ app.get("/api/users/directory", requireAuth, async (req, res) => {
       id: users.id,
       name: users.name,
       role: users.role,
+      department: users.department,
       profilePicture: users.profilePicture
     })
     .from(users)
@@ -5810,6 +6123,107 @@ app.get("/api/users/directory", requireAuth, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Failed to fetch directory' });
+  }
+});
+
+app.get("/api/courses/my-contacts", requireAuth, async (req, res) => {
+  try {
+    const { users, studentCourses, courseAllocations, courses } = await import('./src/db/schema');
+    const { db } = await import('./src/db');
+    const { eq, inArray, ne } = await import('drizzle-orm');
+    const userId = (req as any).user.id;
+    const userRole = (req as any).user.role;
+
+    let userCourses: { id: number; code: string; title: string }[] = [];
+    let contactIds = new Set<number>();
+    let courseContactMap = new Map<number, { courseId: number; courseCode: string; courseTitle: string }[]>();
+
+    if (userRole === 'Student') {
+      const enrolled = await db.select({
+        courseId: courses.id,
+        code: courses.code,
+        title: courses.title
+      })
+      .from(studentCourses)
+      .innerJoin(courses, eq(studentCourses.courseId, courses.id))
+      .where(eq(studentCourses.studentId, userId));
+
+      userCourses = enrolled.map(e => ({ id: e.courseId, code: e.code, title: e.title }));
+
+      const courseIds = userCourses.map(c => c.id);
+      if (courseIds.length > 0) {
+        const lecturers = await db.select({
+          lecturerId: courseAllocations.lecturerId,
+          courseId: courses.id,
+          code: courses.code,
+          title: courses.title
+        })
+        .from(courseAllocations)
+        .innerJoin(courses, eq(courseAllocations.courseId, courses.id))
+        .where(inArray(courseAllocations.courseId, courseIds));
+
+        lecturers.forEach(l => {
+          contactIds.add(l.lecturerId);
+          if (!courseContactMap.has(l.lecturerId)) courseContactMap.set(l.lecturerId, []);
+          courseContactMap.get(l.lecturerId)!.push({ courseId: l.courseId, courseCode: l.code, courseTitle: l.title });
+        });
+      }
+    } else if (userRole === 'Lecturer' || userRole === 'HOD' || userRole === 'Dean') {
+      const allocated = await db.select({
+        courseId: courses.id,
+        code: courses.code,
+        title: courses.title
+      })
+      .from(courseAllocations)
+      .innerJoin(courses, eq(courseAllocations.courseId, courses.id))
+      .where(eq(courseAllocations.lecturerId, userId));
+
+      userCourses = allocated.map(a => ({ id: a.courseId, code: a.code, title: a.title }));
+
+      const courseIds = userCourses.map(c => c.id);
+      if (courseIds.length > 0) {
+        const students = await db.select({
+          studentId: studentCourses.studentId,
+          courseId: courses.id,
+          code: courses.code,
+          title: courses.title
+        })
+        .from(studentCourses)
+        .innerJoin(courses, eq(studentCourses.courseId, courses.id))
+        .where(inArray(studentCourses.courseId, courseIds));
+
+        students.forEach(s => {
+          contactIds.add(s.studentId);
+          if (!courseContactMap.has(s.studentId)) courseContactMap.set(s.studentId, []);
+          courseContactMap.get(s.studentId)!.push({ courseId: s.courseId, courseCode: s.code, courseTitle: s.title });
+        });
+      }
+    }
+
+    const allUsers = await db.select({
+      id: users.id,
+      name: users.name,
+      role: users.role,
+      department: users.department,
+      profilePicture: users.profilePicture
+    })
+    .from(users)
+    .where(ne(users.id, userId));
+
+    const contacts = allUsers.map(u => ({
+      ...u,
+      isDirectCourseContact: contactIds.has(u.id),
+      courses: courseContactMap.get(u.id) || []
+    }));
+
+    res.json({
+      myCourses: userCourses,
+      contacts,
+      onlineUserIds: Array.from(userSockets.keys())
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to fetch course contacts' });
   }
 });
 // --- End Messages API ---
@@ -6432,7 +6846,78 @@ ${JSON.stringify(equipments, null, 2)}`;
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
-  app.listen(PORT, "0.0.0.0", () => {
+  const httpServer = http.createServer(app);
+  const wss = new WebSocketServer({ server: httpServer });
+
+  wss.on('connection', (ws: ExtendedWebSocket) => {
+    ws.isAlive = true;
+
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
+
+    ws.on('message', (data) => {
+      try {
+        const parsed = JSON.parse(data.toString());
+        if (parsed.type === 'auth') {
+          const userId = Number(parsed.userId);
+          if (userId) {
+            ws.userId = userId;
+            if (!userSockets.has(userId)) {
+              userSockets.set(userId, new Set());
+            }
+            userSockets.get(userId)!.add(ws);
+            ws.send(JSON.stringify({
+              type: 'authenticated',
+              userId,
+              onlineUserIds: Array.from(userSockets.keys())
+            }));
+            
+            broadcastUserStatus(userId, true);
+          }
+        } else if (parsed.type === 'typing') {
+          const receiverId = Number(parsed.receiverId);
+          if (receiverId && ws.userId) {
+            notifyUser(receiverId, {
+              type: 'typing',
+              senderId: ws.userId,
+              courseId: parsed.courseId,
+              isTyping: !!parsed.isTyping
+            });
+          }
+        }
+      } catch (err) {
+        console.error('WS parse error:', err);
+      }
+    });
+
+    ws.on('close', () => {
+      if (ws.userId) {
+        const sockets = userSockets.get(ws.userId);
+        if (sockets) {
+          sockets.delete(ws);
+          if (sockets.size === 0) {
+            userSockets.delete(ws.userId);
+            broadcastUserStatus(ws.userId, false);
+          }
+        }
+      }
+    });
+  });
+
+  const pingInterval = setInterval(() => {
+    wss.clients.forEach((ws: ExtendedWebSocket) => {
+      if (ws.isAlive === false) return ws.terminate();
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, 30000);
+
+  wss.on('close', () => {
+    clearInterval(pingInterval);
+  });
+
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
   });
 }

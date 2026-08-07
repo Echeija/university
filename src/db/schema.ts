@@ -156,6 +156,7 @@ export const messages = pgTable('messages', {
   id: serial('id').primaryKey(),
   senderId: integer('sender_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   receiverId: integer('receiver_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  courseId: integer('course_id').references(() => courses.id, { onDelete: 'cascade' }),
   subject: text('subject').notNull(),
   content: text('content').notNull(),
   attachmentUrl: text('attachment_url'),
@@ -195,6 +196,21 @@ export const favoriteDocuments = pgTable('favorite_documents', {
   userId: integer('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   documentId: integer('document_id').references(() => documents.id, { onDelete: 'cascade' }).notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const studentMandatoryDocuments = pgTable('student_mandatory_documents', {
+  id: serial('id').primaryKey(),
+  studentId: integer('student_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  documentType: text('document_type').notNull(), // 'Academic Transcript', 'SSCE / O-Level Certificate', 'Birth Certificate', 'Certificate of Origin', 'Passport Photo', 'Medical Fitness Certificate', 'Other'
+  title: text('title').notNull(),
+  fileUrl: text('file_url').notNull(),
+  fileType: text('file_type').notNull(),
+  fileSize: integer('file_size').notNull(), // in bytes
+  status: text('status').notNull().default('Pending'), // 'Pending', 'Approved', 'Rejected'
+  adminFeedback: text('admin_feedback'),
+  reviewedById: integer('reviewed_by_id').references(() => users.id, { onDelete: 'set null' }),
+  reviewedAt: timestamp('reviewed_at'),
+  uploadedAt: timestamp('uploaded_at').notNull().defaultNow(),
 });
 
 export const books = pgTable('books', {
