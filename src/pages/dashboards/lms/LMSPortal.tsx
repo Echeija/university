@@ -103,7 +103,7 @@ export default function LMSPortal() {
         setCourses([]);
         setIsLoading(false);
       });
-  }, [user, token]);
+  }, [user?.role, token]);
 
   if (isLoading) {
     return (

@@ -89,7 +89,7 @@ export default function CourseProgressWidget() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-100 dark:border-slate-700/50">
             <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 mb-1">
               <CheckCircle className="w-4 h-4" />

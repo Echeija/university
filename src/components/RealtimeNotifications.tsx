@@ -60,7 +60,7 @@ export default function RealtimeNotifications() {
     return () => {
       clearInterval(intervalId);
     };
-  }, [token, user, notify]);
+  }, [token, user?.id]);
 
   return null; // This is a logic-only component
 }

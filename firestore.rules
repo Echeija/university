@@ -1,0 +1,32 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidGradeNotification(data) {
+      return data.studentId is number
+        && data.courseId is number
+        && data.courseCode is string && data.courseCode.size() <= 50
+        && data.score is number && data.score >= 0 && data.score <= 100
+        && data.grade is string && data.grade.size() <= 5
+        && data.message is string && data.message.size() <= 500
+        && data.isRead is bool;
+    }
+
+    match /grade_notifications/{notificationId} {
+      // Allow reading list and documents for grade notifications
+      allow read, list: if true;
+      // Allow creating and updating grade notifications
+      allow create, update: if isValidGradeNotification(request.resource.data);
+      allow delete: if true;
+    }
+
+    // Default deny all other paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

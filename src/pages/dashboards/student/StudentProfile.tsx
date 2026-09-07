@@ -68,7 +68,7 @@ export default function StudentProfile() {
         notify({ title: 'Error', message: 'Failed to update profile', type: 'error' });
       }
     } catch (e) {
-      console.error(e);
+      console.log("Camera error:", e?.message || e);
       notify({ title: 'Error', message: 'An error occurred', type: 'error' });
     } finally {
       setIsSaving(false);
@@ -118,25 +118,38 @@ export default function StudentProfile() {
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
         
-        // Upload to Firebase
         try {
           setIsSaving(true);
           stopCamera();
           
-          const filename = `profiles/${user?.id}_${Date.now()}.jpg`;
-          const storageRef = ref(storage, filename);
+          let photoUrl = dataUrl;
+          try {
+            const filename = `profiles/${user?.id}_${Date.now()}.jpg`;
+            const storageRef = ref(storage, filename);
+            await uploadString(storageRef, dataUrl, 'data_url');
+            photoUrl = await getDownloadURL(storageRef);
+          } catch (fbErr) {
+            console.warn("Firebase Storage upload fallback to base64 data URL:", fbErr);
+          }
+
+          // Persist directly to backend profile
+          await fetch('/api/student/profile', {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify({ profilePicture: photoUrl })
+          });
           
-          await uploadString(storageRef, dataUrl, 'data_url');
-          const downloadUrl = await getDownloadURL(storageRef);
-          
-          setFormData(prev => ({ ...prev, profilePicture: downloadUrl }));
-          notify({ title: 'Success', message: 'Photo captured and uploaded', type: 'success' });
+          setFormData(prev => ({ ...prev, profilePicture: photoUrl }));
+          notify({ title: 'Success', message: 'Photo captured and saved for Digital ID card', type: 'success' });
           
         } catch (e) {
           console.error(e);
-          notify({ title: 'Error', message: 'Failed to upload photo', type: 'error' });
+          notify({ title: 'Error', message: 'Failed to update photo', type: 'error' });
         } finally {
           setIsSaving(false);
         }

@@ -38,7 +38,7 @@ export default function QuickActions() {
   return (
     <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 mt-6">
       <h3 className="font-bold text-xl text-slate-800 dark:text-white mb-6">Quick Actions</h3>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {actions.map((action) => (
           action.onClick ? (
             <button

@@ -3,10 +3,11 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Save, FileSpreadsheet, CheckCircle2 } from 'lucide-react';
 import { useNotification } from '../../../contexts/NotificationContext';
+import { publishGradeNotification } from '../../../services/gradeNotificationService';
 
 export default function Grading() {
 
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { notify } = useNotification();
   const { courseId } = useParams();
   const [students, setStudents] = useState<any[]>([]);
@@ -59,13 +60,42 @@ export default function Grading() {
         },
         body: JSON.stringify({ grades: students })
       });
+
       if (res.ok) {
-        notify({ title: 'Success', message: 'Grades saved successfully!', type: 'success' });
+        // Publish real-time grade alerts to Firestore for affected students
+        for (const student of students) {
+          if (student.score !== null && student.score !== undefined && student.grade) {
+            const isUpdate = Boolean(student.resultId);
+            const actionType = isUpdate ? 'UPDATE_GRADE' : 'NEW_GRADE';
+            const verb = isUpdate ? 'updated' : 'posted';
+            const courseCode = course?.code || `CSC ${courseId || '301'}`;
+            const courseTitle = course?.title || 'Course Module';
+
+            await publishGradeNotification({
+              studentId: student.studentId,
+              courseId: course ? course.id : parseInt(courseId || '1'),
+              courseCode,
+              courseTitle,
+              lecturerName: user?.name || 'Lecturer',
+              score: student.score,
+              grade: student.grade,
+              actionType,
+              message: `${user?.name || 'Your lecturer'} ${verb} your grade for ${courseCode} (${courseTitle}): Score ${student.score}% (Grade ${student.grade})`
+            });
+          }
+        }
+
+        notify({ 
+          title: 'Grades Published & Real-time Alerts Sent', 
+          message: 'Saved grades and published real-time Firestore notifications to student portals.', 
+          type: 'success' 
+        });
       } else {
         notify({ title: 'Error', message: 'Failed to save grades.', type: 'error' });
       }
     } catch (e) {
-      notify({ title: 'Error', message: 'An error occurred.', type: 'error' });
+      console.error(e);
+      notify({ title: 'Error', message: 'An error occurred while saving grades.', type: 'error' });
     }
     setIsLoading(false);
   };

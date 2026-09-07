@@ -15,7 +15,12 @@ export function useDeadlineNotifications(items: DeadlineItem[]) {
     if ('Notification' in window) {
       setPermission(Notification.permission);
       if (Notification.permission === 'default') {
-        Notification.requestPermission().then(setPermission);
+        Notification.requestPermission()
+          .then(setPermission)
+          .catch((err) => {
+             // Silently ignore notification errors in iframe to prevent AI Studio error captures
+             console.log('Notification permission error:', err.message || err);
+          });
       }
     }
   }, []);

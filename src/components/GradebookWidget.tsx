@@ -8,7 +8,7 @@ export default function GradebookWidget() {
   const [grades, setGrades] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchGradebook = () => {
     fetch('/api/student/gradebook', { headers: { Authorization: `Bearer ${token}` } })
       .then(res => res.json())
       .then(data => {
@@ -20,6 +20,19 @@ export default function GradebookWidget() {
       })
       .catch((e) => { if (e.message !== "Failed to fetch") console.error(e) })
       .finally(() => setIsLoading(false));
+  };
+
+  useEffect(() => {
+    fetchGradebook();
+
+    const handleGradeUpdated = () => {
+      fetchGradebook();
+    };
+
+    window.addEventListener('grade-updated', handleGradeUpdated);
+    return () => {
+      window.removeEventListener('grade-updated', handleGradeUpdated);
+    };
   }, [token]);
 
   const handlePrint = () => {

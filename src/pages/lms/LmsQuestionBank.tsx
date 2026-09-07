@@ -1,3 +1,4 @@
+import React from 'react';
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Database, Plus, Search, Tag, Filter, Edit, Trash2, CheckCircle, HelpCircle, Upload, X, AlertCircle, Save, History, RotateCcw, AlertTriangle } from 'lucide-react';

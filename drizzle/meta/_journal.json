@@ -8,6 +8,48 @@
       "when": 1783691059424,
       "tag": "0000_whole_iron_fist",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786442552422,
+      "tag": "0001_fearless_senator_kelly",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787576997866,
+      "tag": "0002_fixed_gambit",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787580793934,
+      "tag": "0003_glossy_manta",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787584374589,
+      "tag": "0004_wonderful_leo",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787584515395,
+      "tag": "0005_petite_roxanne_simpson",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787749776935,
+      "tag": "0006_orange_dazzler",
+      "breakpoints": true
     }
   ]
 }

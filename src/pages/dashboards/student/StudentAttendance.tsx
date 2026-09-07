@@ -53,15 +53,15 @@ export default function StudentAttendance() {
   const handleExportCSV = () => {
     const headers = ['Course Code', 'Course Title', 'Present', 'Absent', 'Late', 'Excused', 'Total', 'Percentage'];
     const rows = Object.entries(courseStats).map(([code, stat]) => {
-      const percentage = getPercentage(stat.present, stat.late, stat.total);
+      const percentage = getPercentage((stat as any).present, (stat as any).late, (stat as any).total);
       return [
         code,
-        `"${stat.title}"`,
-        stat.present,
-        stat.absent,
-        stat.late,
-        stat.excused,
-        stat.total,
+        `"${(stat as any).title}"`,
+        (stat as any).present,
+        (stat as any).absent,
+        (stat as any).late,
+        (stat as any).excused,
+        (stat as any).total,
         `${percentage}%`
       ];
     });
@@ -140,14 +140,14 @@ export default function StudentAttendance() {
         <div className="space-y-8">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {Object.entries(courseStats).map(([code, stat]) => {
-              const percentage = getPercentage(stat.present, stat.late, stat.total);
+              const percentage = getPercentage((stat as any).present, (stat as any).late, (stat as any).total);
               
               return (
                 <div key={code} className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700">
                   <div className="flex justify-between items-start mb-4">
                     <div>
                       <h3 className="font-bold text-lg text-slate-900 dark:text-white">{code}</h3>
-                      <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-1">{stat.title}</p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-1">{(stat as any).title}</p>
                     </div>
                     <div className={`px-3 py-1 rounded-full text-sm font-bold ${
                       percentage >= 75 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
@@ -165,21 +165,21 @@ export default function StudentAttendance() {
                     ></div>
                   </div>
                   
-                  <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-center text-xs">
                     <div className="bg-slate-50 dark:bg-slate-900 rounded-lg py-2">
-                      <span className="block font-bold text-slate-900 dark:text-white">{stat.present}</span>
+                      <span className="block font-bold text-slate-900 dark:text-white">{(stat as any).present}</span>
                       <span className="text-slate-500 dark:text-slate-400">Present</span>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-900 rounded-lg py-2">
-                      <span className="block font-bold text-slate-900 dark:text-white">{stat.absent}</span>
+                      <span className="block font-bold text-slate-900 dark:text-white">{(stat as any).absent}</span>
                       <span className="text-slate-500 dark:text-slate-400">Absent</span>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-900 rounded-lg py-2">
-                      <span className="block font-bold text-slate-900 dark:text-white">{stat.late}</span>
+                      <span className="block font-bold text-slate-900 dark:text-white">{(stat as any).late}</span>
                       <span className="text-slate-500 dark:text-slate-400">Late</span>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-900 rounded-lg py-2">
-                      <span className="block font-bold text-slate-900 dark:text-white">{stat.total}</span>
+                      <span className="block font-bold text-slate-900 dark:text-white">{(stat as any).total}</span>
                       <span className="text-slate-500 dark:text-slate-400">Total</span>
                     </div>
                   </div>

@@ -75,7 +75,7 @@ export default function EmergencyBroadcastForm() {
       <div className="space-y-6 max-w-2xl">
         <div>
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Severity Level</label>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <button
               onClick={() => setSeverity('info')}
               className={`p-4 rounded-xl border flex flex-col items-center gap-2 transition-all ${

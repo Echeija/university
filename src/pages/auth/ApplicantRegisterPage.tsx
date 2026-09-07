@@ -232,7 +232,7 @@ export default function ApplicantRegisterPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 border-b border-slate-100 pb-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-b border-slate-100 pb-4">
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">First Name</label>
                     <p className="text-slate-900 font-medium">{formData.firstName}</p>
@@ -247,7 +247,7 @@ export default function ApplicantRegisterPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 border-b border-slate-100 pb-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-b border-slate-100 pb-4">
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Email Address</label>
                     <p className="text-slate-900 font-medium">{formData.email}</p>
@@ -258,7 +258,7 @@ export default function ApplicantRegisterPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 border-b border-slate-100 pb-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-b border-slate-100 pb-4">
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Username</label>
                     <p className="text-slate-900 font-medium">{formData.username}</p>

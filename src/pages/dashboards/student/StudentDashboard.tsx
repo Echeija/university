@@ -31,8 +31,19 @@ import StudentCalendar from '../../../components/StudentCalendar';
 import DigitalResourceLibrary from '../../../components/DigitalResourceLibrary';
 import FacilityBookingSystem from '../../../components/FacilityBookingSystem';
 
+import AcademicOverviewWidget from '../../../components/AcademicOverviewWidget';
+
 export default function StudentDashboard() {
-  const { user } = useAuth();
+  const [cgpa, setCgpa] = React.useState<number | null>(null);
+  const { user, token } = useAuth();
+  React.useEffect(() => {
+    fetch('/api/student/academic-profile', { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.cgpa !== undefined) setCgpa(data.cgpa);
+      })
+      .catch(e => console.error(e));
+  }, [token]);
 
 
 
@@ -41,22 +52,33 @@ export default function StudentDashboard() {
     window.print();
   };
 
-  const handleDownloadTranscript = () => {
-    transcriptService.downloadTranscript({
-      studentName: user?.name || 'Student',
-      studentId: String(user?.id || 'STD12345678'),
-      program: 'Computer Science',
-      cgpa: '3.76',
-      session: '2025/2026 - 1st Semester',
-      dateGenerated: new Date().toLocaleDateString(),
-      grades: currentGrades.map(g => ({
-        courseCode: g.course,
-        courseTitle: g.title,
-        credits: enrolledCourses.find(c => c.code === g.course)?.credits || 3,
-        grade: g.grade,
-        points: g.points
-      }))
-    }, `Transcript_${user?.name?.replace(/\s+/g, '_') || 'Student'}.pdf`);
+  const [isDownloading, setIsDownloading] = React.useState(false);
+
+  const handleDownloadTranscript = async () => {
+    setIsDownloading(true);
+    try {
+      const [profileRes, transcriptRes] = await Promise.all([
+        fetch('/api/student/academic-profile', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/student/transcript', { headers: { Authorization: `Bearer ${token}` } })
+      ]);
+      
+      if (profileRes.ok && transcriptRes.ok) {
+        const profile = await profileRes.json();
+        const transcriptData = await transcriptRes.json();
+        
+        transcriptService.downloadOfficialTranscript({
+          profile,
+          transcriptData
+        });
+      } else {
+        alert("Could not load transcript data.");
+      }
+    } catch (e) {
+      console.error("Error downloading transcript:", e);
+      alert("Error downloading transcript.");
+    } finally {
+      setIsDownloading(false);
+    }
   };
   const currentGrades = [
     { course: 'CSC 301', title: 'Data Structures', grade: 'A', points: 4.0 },
@@ -148,10 +170,10 @@ export default function StudentDashboard() {
           </button>
           <button
             onClick={handleDownloadTranscript}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white rounded-lg transition-colors font-medium print:hidden shadow-sm"
+            disabled={isDownloading} className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white rounded-lg transition-colors font-medium print:hidden shadow-sm"
           >
             <Download className="w-4 h-4" />
-            <span>Download Transcript</span>
+            <span>{isDownloading ? "Generating..." : "Download Transcript"}</span>
           </button>
           <button
             onClick={handlePrint}
@@ -165,12 +187,10 @@ export default function StudentDashboard() {
 
       <AppointmentReminderSystem />
 
+      <AcademicOverviewWidget />
+
       {/* Existing overview stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700">
-          <h3 className="font-bold text-slate-800 dark:text-slate-200 mb-2">Current CGPA</h3>
-          <p className="text-3xl font-black text-emerald-600 dark:text-emerald-400">3.76</p>
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700">
           <h3 className="font-bold text-slate-800 dark:text-slate-200 mb-2">Registered Courses</h3>
           <p className="text-3xl font-black text-purple-600 dark:text-purple-400">{enrolledCourses.length}</p>
@@ -386,7 +406,7 @@ export default function StudentDashboard() {
           <h2 className="text-xl font-bold text-slate-600">Official Student Transcript Summary</h2>
         </div>
         
-        <div className="mb-8 grid grid-cols-2 gap-4 text-sm">
+        <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
           <div>
             <p className="font-bold text-slate-500">Student Name:</p>
             <p className="font-bold text-lg">{user?.name || 'Student'}</p>
@@ -397,7 +417,7 @@ export default function StudentDashboard() {
           </div>
           <div>
             <p className="font-bold text-slate-500">Current CGPA:</p>
-            <p className="font-bold text-lg">3.76</p>
+            <p className="font-bold text-lg">{cgpa !== null ? cgpa.toFixed(2) : '-'}</p>
           </div>
           <div>
             <p className="font-bold text-slate-500">Academic Session:</p>

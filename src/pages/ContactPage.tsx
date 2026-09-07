@@ -1,3 +1,4 @@
+import React from 'react';
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { MapPin, Mail, Phone, MessageCircle, Send, ChevronDown, Facebook, Twitter, Instagram, Linkedin } from 'lucide-react';

@@ -145,7 +145,7 @@ export default function CampusSpacesWidget({ searchQuery = '' }: { searchQuery?:
                   <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Space Name</label>
                   <input required type="text" value={spaceForm.name} onChange={e => setSpaceForm({...spaceForm, name: e.target.value})} className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg dark:bg-slate-700" placeholder="e.g. Hall A" />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Capacity</label>
                     <input required type="number" min="1" value={spaceForm.capacity} onChange={e => setSpaceForm({...spaceForm, capacity: e.target.value})} className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg dark:bg-slate-700" placeholder="e.g. 150" />

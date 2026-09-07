@@ -177,7 +177,7 @@ export default function HealthInsuranceWidget({ studentId }: { studentId?: numbe
                 className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-800 text-sm"
               />
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Start Date</label>
                 <input 
@@ -245,7 +245,7 @@ export default function HealthInsuranceWidget({ studentId }: { studentId?: numbe
                   )}
                 </div>
                 
-                <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-sm mt-4 p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-slate-700">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-y-2 gap-x-4 text-sm mt-4 p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-slate-700">
                   <div>
                     <p className="text-xs text-slate-500">Policy Number</p>
                     <p className="font-medium text-slate-900 dark:text-slate-100">{record.policyNumber}</p>

@@ -65,7 +65,7 @@ export default function ExamCountdownWidget({ title, targetDate, courseName }: E
           <p className="font-bold">Time has expired for this assessment.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div className="bg-slate-50 dark:bg-slate-900 rounded-xl p-3 text-center border border-slate-100 dark:border-slate-700">
             <div className="text-2xl font-black text-slate-900 dark:text-white">{timeLeft.days}</div>
             <div className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mt-1">Days</div>

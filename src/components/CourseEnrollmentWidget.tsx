@@ -67,8 +67,9 @@ export default function CourseEnrollmentWidget() {
   };
 
   const filteredCourses = courses.filter(course => 
-    course.code.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    course.title.toLowerCase().includes(searchTerm.toLowerCase())
+    course.semester === '1st' &&
+    (course.code.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    course.title.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   if (loading) {

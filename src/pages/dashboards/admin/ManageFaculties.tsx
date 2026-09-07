@@ -1,3 +1,4 @@
+import React from 'react';
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit, Network, Users, Building2 } from 'lucide-react';
 import { useNotification } from '../../../contexts/NotificationContext';

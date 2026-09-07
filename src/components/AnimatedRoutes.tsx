@@ -8,6 +8,7 @@ import ManagementStaffPage from '../pages/ManagementStaffPage';
 import AdministrativeStaffPage from '../pages/AdministrativeStaffPage';
 import AdmissionsPage from '../pages/AdmissionsPage';
 import FacultiesPage from '../pages/FacultiesPage';
+import CourseCatalogPage from '../pages/CourseCatalogPage';
 import ResearchPage from '../pages/ResearchPage';
 import GalleryPage from '../pages/GalleryPage';
 import ContactPage from '../pages/ContactPage';
@@ -26,6 +27,7 @@ import LmsCalendar from '../pages/lms/LmsCalendar';
 import LmsQuizBuilder from '../pages/lms/LmsQuizBuilder';
 import LmsQuestionBank from '../pages/lms/LmsQuestionBank';
 import ProtectedRoute from './ProtectedRoute';
+import VerifyTranscript from '../pages/VerifyTranscript';
 
 export default function AnimatedRoutes() {
   const location = useLocation();
@@ -43,6 +45,7 @@ export default function AnimatedRoutes() {
       >
         <Routes location={location}>
           {/* Public Routes with Website Layout */}
+          <Route path="/verify-transcript/:code" element={<VerifyTranscript />} />
           <Route path="/" element={<RootLayout />}>
             <Route index element={<HomePage />} />
             <Route path="about" element={<AboutPage />} />
@@ -50,6 +53,7 @@ export default function AnimatedRoutes() {
             <Route path="administrative-staff" element={<AdministrativeStaffPage />} />
             <Route path="admissions" element={<AdmissionsPage />} />
             <Route path="faculties" element={<FacultiesPage />} />
+            <Route path="courses" element={<CourseCatalogPage />} />
             <Route path="research" element={<ResearchPage />} />
             <Route path="gallery" element={<GalleryPage />} />
             <Route path="contact" element={<ContactPage />} />

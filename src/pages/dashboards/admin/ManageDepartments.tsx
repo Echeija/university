@@ -1,3 +1,4 @@
+import React from 'react';
 import { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, Edit, Building, BookOpen, ChevronDown, ChevronRight, Download, UploadCloud } from 'lucide-react';
 import { useNotification } from '../../../contexts/NotificationContext';
@@ -772,7 +773,7 @@ export default function ManageDepartments() {
                   placeholder="e.g. Introduction to Programming"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">Credits</label>
                   <input 
@@ -908,7 +909,7 @@ export default function ManageDepartments() {
                   className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">Credits</label>
                   <input 

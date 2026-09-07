@@ -32,7 +32,7 @@ export default function LiveLecture() {
       setIsJoined(true);
       setError(null);
     } catch (err: any) {
-      console.error('Error accessing media devices.', err);
+      console.log('Error accessing media devices.', err?.message || err);
       setError('Could not access camera/microphone. Please ensure permissions are granted.');
     }
   };

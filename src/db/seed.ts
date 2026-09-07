@@ -1,158 +1,198 @@
-import { db } from './index';
-import { users, departments, courses, studentCourses, results, payments, applications } from './schema';
+import { db } from './index.js';
+import * as schema from './schema.js';
 import bcrypt from 'bcryptjs';
+import { eq } from 'drizzle-orm';
 
 async function seed() {
-  console.log('Seeding database...');
   
-  const defaultUsers = [
-    { name: 'System Admin', email: 'admin@smartglobal.edu.ng', role: 'Administrator' },
-    { name: 'ICT Director', email: 'ict@smartglobal.edu.ng', role: 'ICT Admin' },
-    { name: 'Registrar', email: 'registrar@smartglobal.edu.ng', role: 'Registrar' },
-    { name: 'Bursar', email: 'bursar@smartglobal.edu.ng', role: 'Bursary' },
-    { name: 'Dean of Engineering', email: 'dean@smartglobal.edu.ng', role: 'Dean' },
-    { name: 'HOD Computer Science', email: 'hod@smartglobal.edu.ng', role: 'HOD' },
-    { name: 'Dr. John Doe', email: 'lecturer@smartglobal.edu.ng', role: 'Lecturer' },
-    { name: 'Jane Smith', email: 'student@smartglobal.edu.ng', role: 'Student' },
-    { name: 'Prospective Student', email: 'applicant@smartglobal.edu.ng', role: 'Applicant' },
-    { name: 'Chief Librarian', email: 'library@smartglobal.edu.ng', role: 'Library' },
-    { name: 'Dr. Gregory House', email: 'doctor@smartglobal.edu.ng', role: 'Clinic' },
-  ];
+  console.log('Seeding development data...');
+  
+  // 0. Academic Sessions & Semesters
+  const sessionRes = await db.insert(schema.academicSessions).values([
+    { name: '2023/2024', isActive: false, isAdmissionActive: false },
+    { name: '2024/2025', isActive: true, isAdmissionActive: true }
+  ]).returning();
+  
+  const oldSessionId = sessionRes[0].id;
+  const newSessionId = sessionRes[1].id;
+  
+  await db.insert(schema.semesters).values([
+    { sessionId: oldSessionId, name: 'First', isActive: false },
+    { sessionId: oldSessionId, name: 'Second', isActive: false },
+    { sessionId: newSessionId, name: 'First', isActive: true },
+    { sessionId: newSessionId, name: 'Second', isActive: false }
+  ]);
 
+  
+  // 1. Faculty
+  const facultyRes = await db.insert(schema.faculties).values({
+    name: 'Faculty of Science',
+    description: 'Faculty of Science',
+  }).returning();
+  const facultyId = facultyRes[0].id;
+  
+  // 2. Departments
+  const dept1Res = await db.insert(schema.departments).values({
+    name: 'Computer Science',
+    description: 'Department of Computer Science',
+    facultyId,
+  }).returning();
+  const csDeptId = dept1Res[0].id;
+
+  const dept2Res = await db.insert(schema.departments).values({
+    name: 'Mathematics',
+    description: 'Department of Mathematics',
+    facultyId,
+  }).returning();
+  const mathDeptId = dept2Res[0].id;
+  
+  // 3. Courses (10 Courses)
+  const coursesData = [
+    { code: 'CSC101', title: 'Introduction to Computer Science', credits: 3, departmentId: csDeptId, semester: 'First', type: 'Core' },
+    { code: 'CSC102', title: 'Introduction to Programming', credits: 3, departmentId: csDeptId, semester: 'Second', type: 'Core' },
+    { code: 'CSC201', title: 'Data Structures and Algorithms', credits: 3, departmentId: csDeptId, semester: 'First', type: 'Core' },
+    { code: 'CSC202', title: 'Object Oriented Programming', credits: 3, departmentId: csDeptId, semester: 'Second', type: 'Core' },
+    { code: 'CSC301', title: 'Database Management Systems', credits: 3, departmentId: csDeptId, semester: 'First', type: 'Core' },
+    { code: 'CSC302', title: 'Operating Systems', credits: 3, departmentId: csDeptId, semester: 'Second', type: 'Core' },
+    { code: 'MTH101', title: 'Calculus I', credits: 3, departmentId: mathDeptId, semester: 'First', type: 'Core' },
+    { code: 'MTH102', title: 'Calculus II', credits: 3, departmentId: mathDeptId, semester: 'Second', type: 'Core' },
+    { code: 'MTH201', title: 'Linear Algebra I', credits: 3, departmentId: mathDeptId, semester: 'First', type: 'Core' },
+    { code: 'MTH202', title: 'Linear Algebra II', credits: 3, departmentId: mathDeptId, semester: 'Second', type: 'Core' },
+  ];
+  const insertedCourses = await db.insert(schema.courses).values(coursesData).returning();
+
+  // Hash password
   const passwordHash = await bcrypt.hash('password123', 10);
 
-  // Users
-  for (const user of defaultUsers) {
-    try {
-      await db.insert(users).values({
-        ...user,
-        password: passwordHash,
-        createdAt: new Date(),
-      } as any);
-      console.log(`Created user: ${user.email} (${user.role})`);
-    } catch (e: any) {
-      if (e.message.includes('UNIQUE constraint failed') || e.message.includes('duplicate key value')) {
-        console.log(`User ${user.email} already exists.`);
-      } else {
-        console.error(`Error creating user ${user.email}:`, e);
+  // 4. Lecturers (5 Lecturers)
+  const lecturerData = [];
+  for (let i = 1; i <= 5; i++) {
+    lecturerData.push({
+      name: `Lecturer ${i}`,
+      email: `lecturer${i}@university.edu`,
+      username: `L${i}000`,
+      role: 'Lecturer',
+      password: passwordHash,
+      department: i <= 3 ? 'Computer Science' : 'Mathematics',
+      faculty: 'Faculty of Science',
+      createdAt: new Date(),
+    });
+  }
+  const insertedLecturers = await db.insert(schema.users).values(lecturerData as any).returning();
+  
+  // Allocate courses to lecturers
+  const courseAllocations = [];
+  let lecturerIndex = 0;
+  for (const course of insertedCourses) {
+    courseAllocations.push({
+      courseId: course.id,
+      lecturerId: insertedLecturers[lecturerIndex % 5].id,
+      academicYear: '2023/2024',
+      semester: course.semester,
+    });
+    lecturerIndex++;
+  }
+  await db.insert(schema.courseAllocations).values(courseAllocations);
+
+  // 5. Students (20 Students)
+  const studentData = [];
+  const programmes = ['B.Sc. Computer Science', 'B.Sc. Mathematics'];
+  const levels = ['100', '200'];
+  const sessions = ['2023/2024', '2024/2025'];
+  
+  for (let i = 1; i <= 20; i++) {
+    studentData.push({
+      name: `Student ${i}`,
+      email: `student${i}@university.edu`,
+      username: `STU${1000 + i}`,
+      role: 'Student',
+      password: passwordHash,
+      department: i <= 10 ? 'Computer Science' : 'Mathematics',
+      faculty: 'Faculty of Science',
+      createdAt: new Date(),
+    });
+  }
+  const insertedStudents = await db.insert(schema.users).values(studentData as any).returning();
+  
+  // Register students for courses and generate sample results
+  const studentCourses = [];
+  const resultsData = [];
+  
+  for (const student of insertedStudents) {
+    // Each student registers for 5 courses in their department
+    const deptCourses = insertedCourses.filter(c => 
+      (student.department === 'Computer Science' && c.code.startsWith('CSC')) ||
+      (student.department === 'Mathematics' && c.code.startsWith('MTH'))
+    );
+    
+    // Pick first 5 courses
+    for (let i = 0; i < 5; i++) {
+      const course = deptCourses[i];
+      if (!course) break;
+      
+      studentCourses.push({
+        studentId: student.id,
+        courseId: course.id,
+        semester: course.semester,
+        status: 'registered',
+      });
+      
+      // Some students have results
+      if (Math.random() > 0.3) {
+        const caScore = Math.floor(Math.random() * 30);
+        const examScore = Math.floor(Math.random() * 70);
+        const score = caScore + examScore;
+        
+        let grade = 'F';
+        let gradePoint = 0;
+        if (score >= 70) { grade = 'A'; gradePoint = 5.0; }
+        else if (score >= 60) { grade = 'B'; gradePoint = 4.0; }
+        else if (score >= 50) { grade = 'C'; gradePoint = 3.0; }
+        else if (score >= 45) { grade = 'D'; gradePoint = 2.0; }
+        
+        resultsData.push({
+          studentId: student.id,
+          courseId: course.id,
+          academicSession: '2023/2024',
+          semester: course.semester,
+          caScore,
+          examScore,
+          score,
+          grade,
+          gradePoint,
+          qualityPoint: gradePoint * course.credits,
+          status: 'draft', // Keeping some as draft for workflow testing
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
       }
     }
   }
-
-  // Get student id for further seeding
-  const student = await db.query.users.findFirst({
-    where: (u, { eq }) => eq(u.email, 'student@smartglobal.edu.ng')
-  });
-
-  const applicant = await db.query.users.findFirst({
-    where: (u, { eq }) => eq(u.email, 'applicant@smartglobal.edu.ng')
-  });
-
-  if (!student || !applicant) return;
-
-  // Departments
-  const cscDept = await db.insert(departments).values({
-    name: 'Computer Science',
-    description: 'Department of Computer Science'
-  }).returning().then(res => res[0]);
-
-  // Courses
-  const csc101 = await db.insert(courses).values({
-    code: 'CSC 101',
-    title: 'Introduction to Computer Science',
-    credits: 3,
-    departmentId: cscDept.id,
-    semester: '1st'
-  }).returning().then(res => res[0]);
-
-  const csc102 = await db.insert(courses).values({
-    code: 'CSC 102',
-    title: 'Introduction to Problem Solving',
-    credits: 3,
-    departmentId: cscDept.id,
-    semester: '1st'
-  }).returning().then(res => res[0]);
-
-  // Student Courses
-  await db.insert(studentCourses).values([
-    { studentId: student.id, courseId: csc101.id, semester: '1st', status: 'registered' },
-    { studentId: student.id, courseId: csc102.id, semester: '1st', status: 'registered' }
-  ]);
-
-  // Results
-  await db.insert(results).values([
-    { studentId: student.id, courseId: csc101.id, score: 75, grade: 'A', semester: '1st' },
-    { studentId: student.id, courseId: csc102.id, score: 68, grade: 'B', semester: '1st' }
-  ]);
-
-  // Payments
-  await db.insert(payments).values([
-    { studentId: student.id, amount: 150000, purpose: 'Tuition Fee - 1st Semester', reference: 'REF-2026-T1', status: 'completed', createdAt: new Date() },
-    { studentId: student.id, amount: 20000, purpose: 'Library Fee', reference: 'REF-2026-L1', status: 'pending', createdAt: new Date() }
-  ]);
-
-  // Applicant
-  await db.insert(applications).values({
-    userId: applicant.id,
-    fullName: 'Prospective Student',
-    programOfInterest: 'B.Sc. Computer Science',
-    status: 'pending',
-    createdAt: new Date(),
-  });
-
   
-  // Add calendar events
-  console.log('Seeding calendar events...');
-  const { calendarEvents } = require('./schema');
-  await db.insert(calendarEvents).values([
-    {
-      courseId: 1,
-      userId: 2, // Assuming lecturer exists
-      title: 'Midterm Exam - CSC 301',
-      type: 'Academic',
-      startTime: new Date(Date.now() + 86400000 * 2),
-      endTime: new Date(Date.now() + 86400000 * 2 + 7200000),
-      description: 'Midterm exam for Data Structures'
-    },
-    {
-      courseId: null,
-      userId: 1, // Admin
-      title: 'University Spring Gala',
-      type: 'Social',
-      startTime: new Date(Date.now() + 86400000 * 5),
-      endTime: new Date(Date.now() + 86400000 * 5 + 14400000),
-      description: 'Annual spring gala for all students and staff'
-    },
-    {
-      courseId: 2,
-      userId: 2, 
-      title: 'Assignment 3 Due',
-      type: 'Academic',
-      startTime: new Date(Date.now() + 86400000 * 7),
-      endTime: new Date(Date.now() + 86400000 * 7 + 3600000),
-      description: 'Submit via LMS portal'
-    },
-    {
-      courseId: null,
-      userId: 1, 
-      title: 'Tech Club Meetup',
-      type: 'Social',
-      startTime: new Date(Date.now() + 86400000 * 3),
-      endTime: new Date(Date.now() + 86400000 * 3 + 7200000),
-      description: 'Monthly tech club meetup at Student Center'
-    },
-    {
-      courseId: null,
-      userId: 1, 
-      title: 'Career Fair 2026',
-      type: 'Academic',
-      startTime: new Date(Date.now() + 86400000 * 10),
-      endTime: new Date(Date.now() + 86400000 * 10 + 28800000),
-      description: 'Annual career fair featuring top tech companies'
+  await db.insert(schema.studentCourses).values(studentCourses);
+  
+  if (resultsData.length > 0) {
+    await db.insert(schema.results).values(resultsData as any);
+  }
+  
+  // Mark some results as submitted, hod_approved, registrar_approved, published
+  const statuses = ['submitted', 'hod_approved', 'registrar_approved', 'published'];
+  for (const status of statuses) {
+    // get some drafts
+    const drafts = resultsData.filter(r => r.status === 'draft').slice(0, 5);
+    for (const draft of drafts) {
+      await db.update(schema.results)
+        .set({ status: status as any })
+        .where(eq(schema.results.studentId, draft.studentId))
+        // we can just update all for that student
     }
-  ]).onConflictDoNothing();
+  }
 
-  console.log('Seeding complete!');
+  console.log('Seed data created successfully!');
+  process.exit(0);
 }
 
-seed().catch((e) => { if (e.message !== "Failed to fetch") console.error(e) });
+seed().catch(err => {
+  console.error('Error seeding data:', err);
+  process.exit(1);
+});

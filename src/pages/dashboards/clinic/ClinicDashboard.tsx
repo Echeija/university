@@ -416,7 +416,7 @@ export default function ClinicDashboard() {
               </div>
               
               <div className="space-y-4 pt-4 border-t border-slate-100">
-                <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
                   <div className="bg-slate-50 p-2 rounded border border-slate-100">
                     <span className="block text-xs text-slate-500 mb-1">Blood Group</span>
                     <span className="font-semibold text-slate-800">{profile?.bloodGroup || 'N/A'}</span>
@@ -597,7 +597,7 @@ export default function ClinicDashboard() {
                 />
               </div>
               
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Diagnosis</label>
                   <input 

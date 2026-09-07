@@ -59,7 +59,7 @@ export default function LiveClass({ courseCode, courseTitle, onLeave }: LiveClas
         clearTimeout(timer2);
       };
     }
-  }, [user]);
+  }, [user?.role]);
 
   const removeNotification = (id: number) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
@@ -129,7 +129,7 @@ export default function LiveClass({ courseCode, courseTitle, onLeave }: LiveClas
           localVideoRef.current.srcObject = stream;
         }
       } catch (err) {
-        console.error("Failed to get local stream", err);
+        console.log("Failed to get local stream", err?.message || err);
       }
     }
     setupCamera();
@@ -176,7 +176,7 @@ export default function LiveClass({ courseCode, courseTitle, onLeave }: LiveClas
           setIsScreenSharing(false);
         };
       } catch (err) {
-        console.error("Failed to share screen", err);
+        console.log("Failed to share screen", err?.message || err);
       }
     }
   };
@@ -411,7 +411,7 @@ export default function LiveClass({ courseCode, courseTitle, onLeave }: LiveClas
           {/* Participant Strip (Mock) */}
           
           {/* Participant Strip */}
-          <div className="h-32 mt-4 grid grid-cols-4 gap-4">
+          <div className="h-32 mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
             {/* Local User */}
             <div className="bg-slate-900 rounded-xl border border-slate-800 relative overflow-hidden flex items-center justify-center">
               <video 

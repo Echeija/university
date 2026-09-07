@@ -165,7 +165,7 @@ export default function HomePage() {
       <section className="py-16 bg-emerald-900 text-white relative overflow-hidden">
         <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white via-transparent to-transparent"></div>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 divide-x divide-emerald-800">
+          <div className="grid grid-cols-1 md:grid-cols-2 md:grid-cols-4 gap-8 divide-x divide-emerald-800">
             <div className="flex flex-col items-center text-center px-4">
               <span className="text-4xl md:text-5xl font-black text-emerald-400 mb-2">120k+</span>
               <span className="text-xs md:text-sm text-emerald-100 uppercase font-bold tracking-widest">Active Students</span>

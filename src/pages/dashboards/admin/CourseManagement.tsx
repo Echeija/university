@@ -19,7 +19,11 @@ export default function CourseManagement() {
     title: '',
     credits: 3,
     departmentId: '',
-    semester: '1st'
+    semester: '1st',
+    type: 'Core',
+    contributesToGpa: true,
+    contributesToCgpa: true,
+    contributesToCreditUnits: true
   });
 
   useEffect(() => {
@@ -92,7 +96,11 @@ export default function CourseManagement() {
         title: course.title,
         credits: course.credits,
         departmentId: course.departmentId,
-        semester: course.semester || '1st'
+        semester: course.semester || '1st',
+        type: course.type || 'Core',
+        contributesToGpa: course.contributesToGpa !== undefined ? course.contributesToGpa : true,
+        contributesToCgpa: course.contributesToCgpa !== undefined ? course.contributesToCgpa : true,
+        contributesToCreditUnits: course.contributesToCreditUnits !== undefined ? course.contributesToCreditUnits : true
       });
     } else {
       setFormData({
@@ -101,7 +109,11 @@ export default function CourseManagement() {
         title: '',
         credits: 3,
         departmentId: departments[0]?.id || '',
-        semester: '1st'
+        semester: '1st',
+        type: 'Core',
+        contributesToGpa: true,
+        contributesToCgpa: true,
+        contributesToCreditUnits: true
       });
     }
     setShowAddModal(true);
@@ -159,7 +171,8 @@ export default function CourseManagement() {
                 <th className="p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Title</th>
                 <th className="p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Department</th>
                 <th className="p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Credits</th>
-                <th className="p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Semester</th>
+                <th className="p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Type</th>
+                <th className="p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Rules</th>
                 <th className="p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Actions</th>
               </tr>
             </thead>
@@ -183,7 +196,14 @@ export default function CourseManagement() {
                     </span>
                   </td>
                   <td className="p-4">
-                    <span className="text-slate-600 dark:text-slate-400">{course.semester}</span>
+                    <span className="text-slate-600 dark:text-slate-400">{course.type || 'Core'}</span>
+                  </td>
+                  <td className="p-4 text-xs text-slate-500">
+                    <div className="flex gap-1 flex-wrap w-24">
+                      {course.contributesToGpa && <span className="bg-emerald-100 text-emerald-700 px-1 rounded">GPA</span>}
+                      {course.contributesToCgpa && <span className="bg-emerald-100 text-emerald-700 px-1 rounded">CGPA</span>}
+                      {course.contributesToCreditUnits && <span className="bg-blue-100 text-blue-700 px-1 rounded">CUs</span>}
+                    </div>
                   </td>
                   <td className="p-4">
                     <div className="flex items-center justify-end gap-2">
@@ -250,7 +270,7 @@ export default function CourseManagement() {
               <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Enter the details of the course.</p>
             </div>
             <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Course Code</label>
                   <input 
@@ -295,7 +315,7 @@ export default function CourseManagement() {
                   ))}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Semester</label>
                   <select 

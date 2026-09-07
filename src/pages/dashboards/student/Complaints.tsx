@@ -1,3 +1,4 @@
+import React from 'react';
 import { useState } from 'react';
 import { Send, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useNotification } from '../../../contexts/NotificationContext';

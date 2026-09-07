@@ -1,37 +1,41 @@
 import { useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
-import { BookOpen } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { subscribeStudentGradeNotifications } from '../services/gradeNotificationService';
 
 export default function GradeNotifier() {
+  const { user } = useAuth();
   const { notify } = useNotification();
-  const navigate = useNavigate();
 
   useEffect(() => {
-    // Simulate receiving a real-time notification via WebSocket after a delay
-    const timer1 = setTimeout(() => {
-      notify({
-        title: 'New Grade Posted',
-        message: 'Your final grade for CSC 301: Introduction to Artificial Intelligence has been posted.',
-        type: 'success',
-        duration: 8000,
-      });
-    }, 12000);
+    if (!user || !user.id) return;
 
-    const timer2 = setTimeout(() => {
-      notify({
-        title: 'New Grade Posted',
-        message: 'Your mid-semester grade for ENG 204: Thermodynamics is now available.',
-        type: 'info',
-        duration: 8000,
-      });
-    }, 35000);
+    // Real-time Firestore onSnapshot listener for grade updates
+    const unsubscribe = subscribeStudentGradeNotifications(
+      user.id,
+      (_notifications, newlyAdded) => {
+        if (newlyAdded) {
+          const isUpdate = newlyAdded.actionType === 'UPDATE_GRADE';
+          notify({
+            title: isUpdate ? 'Grade Updated!' : 'New Grade Posted!',
+            message: newlyAdded.message || `Grade for ${newlyAdded.courseCode}: ${newlyAdded.grade} (${newlyAdded.score}%)`,
+            type: 'success',
+            duration: 9000,
+          });
+
+          // Dispatch window event so gradebook & academic result pages update live
+          window.dispatchEvent(new CustomEvent('grade-updated', { detail: newlyAdded }));
+        }
+      },
+      (error) => {
+        console.warn("Realtime grade listener offline or error:", error);
+      }
+    );
 
     return () => {
-      clearTimeout(timer1);
-      clearTimeout(timer2);
+      unsubscribe();
     };
-  }, [notify]);
+  }, [user?.id]);
 
   return null;
 }

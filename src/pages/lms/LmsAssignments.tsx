@@ -1,21 +1,58 @@
+import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { FileText, CheckCircle, Clock, AlertCircle, UploadCloud } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import { storage } from '../../lib/firebase';
+import { ref, uploadBytes } from 'firebase/storage';
+import { Loader2 } from 'lucide-react';
 
 export default function LmsAssignments() {
+  
   const [activeTab, setActiveTab] = useState('Pending');
+  const [isUploading, setIsUploading] = useState<number | null>(null);
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [activeUploadId, setActiveUploadId] = useState<number | null>(null);
+  
   const [assignments, setAssignments] = useState([
+
     { id: 1, title: 'Dijkstra Algorithm Implementation', course: 'CS401', dueDate: 'Oct 15, 2026', status: 'pending', type: 'code' },
     { id: 2, title: 'Database Normalization Essay', course: 'CS302', dueDate: 'Oct 18, 2026', status: 'submitted', type: 'doc', grade: '95/100' },
     { id: 3, title: 'Midterm Project Proposal', course: 'CS450', dueDate: 'Oct 10, 2026', status: 'late', type: 'pdf' },
   ]);
 
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || activeUploadId === null) return;
+    
+    setIsUploading(activeUploadId);
+    
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `student_${activeUploadId}_${Date.now()}.${fileExt}`;
+      const filePath = `assignments/submissions/${fileName}`;
+      
+      const storageRef = ref(storage, filePath);
+      await uploadBytes(storageRef, file);
+      
+      setAssignments(assignments.map(a => 
+        a.id === activeUploadId ? { ...a, status: 'submitted' } : a
+      ));
+      
+      alert('Assignment submitted successfully via Firebase Storage!');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to upload assignment.');
+    } finally {
+      setIsUploading(null);
+      setActiveUploadId(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   const handleSubmit = (id: number) => {
-    // In a real app, this would open a file picker
-    setAssignments(assignments.map(a => 
-      a.id === id ? { ...a, status: 'submitted' } : a
-    ));
-    alert('Assignment submitted successfully!');
+    setActiveUploadId(id);
+    fileInputRef.current?.click();
   };
 
   const filtered = assignments.filter(a => {
@@ -84,6 +121,12 @@ export default function LmsAssignments() {
                   </div>
 
                   <div className="w-full md:w-auto shrink-0 flex items-center gap-4">
+                    <input 
+                      type="file" 
+                      className="hidden" 
+                      ref={fileInputRef} 
+                      onChange={handleFileChange} 
+                    />
                     {assignment.grade && (
                       <div className="text-right mr-4">
                         <div className="text-xs text-slate-500 font-medium uppercase tracking-wider">Grade</div>
@@ -94,9 +137,10 @@ export default function LmsAssignments() {
                     {assignment.status === 'pending' || assignment.status === 'late' ? (
                       <button 
                         onClick={() => handleSubmit(assignment.id)}
+                        disabled={isUploading !== null}
                         className="w-full md:w-auto px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
                       >
-                        <UploadCloud className="w-4 h-4" /> Submit Work
+                        {isUploading === assignment.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />} {isUploading === assignment.id ? 'Uploading...' : 'Submit Work'}
                       </button>
                     ) : (
                       <button className="w-full md:w-auto px-6 py-2.5 border-2 border-slate-200 text-slate-600 font-medium rounded-xl hover:bg-slate-50 transition-colors">

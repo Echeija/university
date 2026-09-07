@@ -407,7 +407,7 @@ export default function LaboratoryDashboard() {
         </div>
         
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <div className="overflow-x-auto"><table className="w-full text-left border-collapse">
             <thead>
               <tr className="border-b border-slate-200 dark:border-slate-700">
                 <th className="py-3 px-4 text-sm font-semibold text-slate-600 dark:text-slate-300">Name</th>
@@ -507,7 +507,7 @@ export default function LaboratoryDashboard() {
                 ))
               )}
             </tbody>
-          </table>
+          </table></div>
         </div>
       </div>
       
@@ -554,7 +554,7 @@ export default function LaboratoryDashboard() {
                 </select>
               </div>
               
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Quantity</label>
                   <input 
@@ -743,7 +743,7 @@ export default function LaboratoryDashboard() {
               ) : auditLogs.length === 0 ? (
                 <div className="py-12 text-center text-slate-500">No logs found.</div>
               ) : (
-                <table className="w-full text-left border-collapse">
+                <div className="overflow-x-auto"><table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-slate-200 dark:border-slate-700">
                       <th className="py-3 px-4 text-sm font-semibold text-slate-600 dark:text-slate-300">Timestamp</th>
@@ -788,7 +788,7 @@ export default function LaboratoryDashboard() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table></div>
               )}
             </div>
             

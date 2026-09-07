@@ -1,3 +1,11 @@
+import crypto from 'crypto';
+import { db } from './src/db/index.js';
+import * as schema from './src/db/schema.js';
+import { eq, and, desc, inArray, sql } from 'drizzle-orm';
+
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+
 import express from "express";
 import multer from "multer";
 import fs from "fs";
@@ -35,7 +43,8 @@ function broadcastUserStatus(userId: number, online: boolean) {
 }
 
 // Ensure uploads directory exists
-const uploadDir = path.join(process.cwd(), 'uploads');
+import os from 'os';
+const uploadDir = path.join(os.tmpdir(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
@@ -57,9 +66,28 @@ import { createServer as createViteServer } from "vite";
 import { authRouter, requireAuth, requireRole } from "./src/server/auth";
 
 async function startServer() {
+  
   const app = express();
+
+  // Enable trust proxy so rate limit works behind reverse proxy
+  app.set('trust proxy', 1);
+
+  
+  // Security Middlewares
+  app.use(helmet({
+    contentSecurityPolicy: false, // Disabled for local dev / iframe rendering compatibility
+    crossOriginEmbedderPolicy: false
+  }));
+  
+  const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 1000, // limit each IP to 1000 requests per windowMs
+    message: 'Too many requests from this IP, please try again after 15 minutes'
+  });
+  app.use('/api', limiter);
+
 const verificationCodes = new Map<string, { code: string; expiresAt: number }>();
-  const PORT = 3000;
+  const PORT = process.env.PORT || 3000;
 
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -69,7 +97,7 @@ async function processMentions(db, users, notifications, content, authorId, link
   const mentionRegex = /@([a-zA-Z0-9_]+)/g;
   const mentions = [...content.matchAll(mentionRegex)].map(m => m[1]);
   if (mentions.length > 0) {
-    const { eq } = await import('drizzle-orm');
+    
     const allUsers = await db.select({ id: users.id, name: users.name }).from(users);
     const mentionedUsers = allUsers.filter(u => mentions.includes(u.name.replace(/\s+/g, '_')));
     
@@ -97,8 +125,8 @@ async function processMentions(db, users, notifications, content, authorId, link
       const { optionId } = req.body;
       const userId = (req as any).user.id;
       const { courseDiscussionPollVotes } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       
       // Delete existing vote
       await db.delete(courseDiscussionPollVotes)
@@ -126,8 +154,8 @@ async function processMentions(db, users, notifications, content, authorId, link
       const { discussionId } = req.params;
       const userId = (req as any).user.id;
       const { courseDiscussionPollVotes } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       
       await db.delete(courseDiscussionPollVotes)
         .where(and(
@@ -256,7 +284,7 @@ async function processMentions(db, users, notifications, content, authorId, link
   app.post("/api/inquiries", async (req, res) => {
     try {
       const { inquiries } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const { name, email, phone, courseOfStudy, message } = req.body;
       
@@ -284,7 +312,7 @@ async function processMentions(db, users, notifications, content, authorId, link
   app.get("/api/admin/inquiries", requireAuth, requireRole(['Administrator', 'Registrar', 'ICT Admin', 'Admission Officer']), async (req, res) => {
     try {
       const { inquiries } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const allInquiries = await db.select().from(inquiries);
       res.json(allInquiries);
     } catch (e) {
@@ -294,7 +322,7 @@ async function processMentions(db, users, notifications, content, authorId, link
 
   
 // --- Admission Letter Template API ---
-const templatePath = path.join(process.cwd(), 'admission_template.json');
+const templatePath = path.join(os.tmpdir(), 'admission_template.json');
 app.get('/api/registrar/admission-template', requireAuth, (req, res) => {
   if ((req as any).user.role !== 'Registrar' && (req as any).user.role !== 'Applicant') return res.status(403).json({ error: 'Forbidden' });
   try {
@@ -384,10 +412,54 @@ app.get("/api/health", (req, res) => {
     }
   });
 
+  
+  app.get("/api/course-catalog", async (req, res) => {
+    try {
+      const { courses, departments, courseAllocations, users } = await import('./src/db/schema');
+      
+      
+      
+      const allCourses = await db.select({
+        id: courses.id,
+        code: courses.code,
+        title: courses.title,
+        credits: courses.credits,
+        semester: courses.semester,
+        prerequisites: courses.prerequisites,
+        department: departments.name,
+      }).from(courses)
+        .leftJoin(departments, eq(courses.departmentId, departments.id));
+
+      const allocations = await db.select({
+        courseId: courseAllocations.courseId,
+        lecturerName: users.name,
+      }).from(courseAllocations)
+        .leftJoin(users, eq(courseAllocations.lecturerId, users.id));
+
+      const allocationsMap = allocations.reduce((acc, curr) => {
+        if (!acc[curr.courseId]) acc[curr.courseId] = [];
+        if (curr.lecturerName && !acc[curr.courseId].includes(curr.lecturerName)) {
+           acc[curr.courseId].push(curr.lecturerName);
+        }
+        return acc;
+      }, {});
+
+      const result = allCourses.map(c => ({
+        ...c,
+        instructors: allocationsMap[c.id] || []
+      }));
+      
+      res.json(result);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Failed to fetch course catalog' });
+    }
+  });
+
   app.get("/api/courses", async (req, res) => {
     try {
       const { courses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const allCourses = await db.select().from(courses);
       res.json(allCourses);
     } catch (e) {
@@ -400,8 +472,8 @@ app.get("/api/health", (req, res) => {
     try {
       const userId = (req as any).user.id;
       const { studentCourses, courses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const registered = await db.select({
         id: studentCourses.id,
@@ -423,8 +495,8 @@ app.get("/api/health", (req, res) => {
     try {
       const userId = (req as any).user.id;
       const { results, courses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const academicResults = await db.select({
         id: results.id,
@@ -434,7 +506,7 @@ app.get("/api/health", (req, res) => {
         semester: results.semester,
       }).from(results)
         .leftJoin(courses, eq(results.courseId, courses.id))
-        .where(eq(results.studentId, userId));
+        .where(and(eq(results.studentId, userId), eq(results.status, 'published')));
         
       // For demonstration, adding mock feedback and trend data
       const gradebookData = academicResults.map((result, i) => {
@@ -464,8 +536,8 @@ app.get("/api/health", (req, res) => {
     try {
       const userId = (req as any).user.id;
       const { results, courses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
 
       const academicResults = await db.select({
         id: results.id,
@@ -475,7 +547,12 @@ app.get("/api/health", (req, res) => {
         semester: results.semester,
       }).from(results)
         .leftJoin(courses, eq(results.courseId, courses.id))
-        .where(eq(results.studentId, userId));
+        .where(
+          and(
+            eq(results.studentId, userId),
+            eq(results.status, 'published')
+          )
+        );
 
       res.json(academicResults);
     } catch (e) {
@@ -488,8 +565,8 @@ app.get("/api/health", (req, res) => {
     try {
       const userId = (req as any).user.id;
       const { payments } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, desc } = await import('drizzle-orm');
+      
+      
 
       const studentPayments = await db.select().from(payments)
         .where(eq(payments.studentId, userId))
@@ -505,8 +582,8 @@ app.get("/api/health", (req, res) => {
     try {
       const userId = (req as any).user.id;
       const { payments } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
 
       const studentPayments = await db.select().from(payments).where(eq(payments.studentId, userId));
       const totalPaid = studentPayments
@@ -531,7 +608,7 @@ app.get("/api/health", (req, res) => {
       const userId = (req as any).user.id;
       const { amount, purpose, session, semester } = req.body;
       const { payments } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
 
       const reference = 'INV-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
       const [newInvoice] = await db.insert(payments).values({
@@ -565,8 +642,8 @@ app.get("/api/health", (req, res) => {
         if (event.event === 'charge.success') {
           const reference = event.data.reference;
           const { payments } = await import('./src/db/schema');
-          const { db } = await import('./src/db');
-          const { eq } = await import('drizzle-orm');
+          
+          
           
           await db.update(payments)
             .set({ status: 'successful' })
@@ -585,8 +662,8 @@ app.get("/api/health", (req, res) => {
       const { id } = req.params;
       const { reference, amountPaid } = req.body;
       const { payments } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       
       // Verify payment with Paystack API
       const secret = process.env.PAYSTACK_SECRET_KEY;
@@ -639,6 +716,65 @@ app.get("/api/health", (req, res) => {
           .where(eq(payments.id, existingPayment.id))
           .returning();
         updatedPayment = updated;
+      }
+      
+      // Generate and save digital receipt
+      try {
+        const { jsPDF } = await import('jspdf');
+        const fs = await import('fs');
+        const path = await import('path');
+        const { users } = await import('./src/db/schema');
+        const [student] = await db.select().from(users).where(eq(users.id, userId));
+        
+        const receiptsDir = path.join(uploadDir, 'receipts');
+        if (!fs.existsSync(receiptsDir)) {
+          fs.mkdirSync(receiptsDir, { recursive: true });
+        }
+        
+        const doc = new jsPDF();
+        const pageWidth = doc.internal.pageSize.width;
+        
+        doc.setFontSize(22);
+        doc.setFont('helvetica', 'bold');
+        doc.text('OFFICIAL PAYMENT RECEIPT', pageWidth / 2, 20, { align: 'center' });
+        
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'normal');
+        doc.text('UNIVERSITY OF EXCELLENCE', pageWidth / 2, 28, { align: 'center' });
+
+        doc.setLineWidth(0.5);
+        doc.line(14, 32, pageWidth - 14, 32);
+
+        doc.setFontSize(11);
+        doc.text(`Date: ${new Date().toLocaleDateString()}`, 14, 45);
+        doc.text(`Receipt No: ${reference}`, 14, 52);
+        
+        doc.setFont('helvetica', 'bold');
+        doc.text('Student Details', 14, 65);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Name: ${student?.name || 'Student'}`, 14, 72);
+        doc.text(`Matric No: ${student?.username || 'N/A'}`, 14, 79);
+        doc.text(`Department: ${student?.department || 'N/A'}`, 14, 86);
+        
+        doc.setFont('helvetica', 'bold');
+        doc.text('Payment Details', 14, 100);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Purpose: ${existingPayment.purpose}`, 14, 107);
+        doc.text(`Academic Session: ${existingPayment.session || 'N/A'}`, 14, 114);
+        doc.text(`Semester: ${existingPayment.semester || 'N/A'}`, 14, 121);
+        
+        doc.setFontSize(16);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`Amount Paid: NGN ${actualAmountPaid.toLocaleString()}`, 14, 135);
+        
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.text('This is an electronically generated receipt.', pageWidth / 2, 250, { align: 'center' });
+        
+        const pdfPath = path.join(receiptsDir, `${reference}.pdf`);
+        fs.writeFileSync(pdfPath, doc.output());
+      } catch (receiptError) {
+        console.error('Failed to generate receipt:', receiptError);
       }
         
       if (!updatedPayment) {
@@ -744,7 +880,7 @@ app.get("/api/health", (req, res) => {
       const userId = (req as any).user.id;
       const { courseId, semester } = req.body;
       const { studentCourses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { AuditLogger } = await import('./src/services/AuditLogger');
       
       await db.insert(studentCourses).values({
@@ -767,8 +903,8 @@ app.get("/api/health", (req, res) => {
     try {
       const userId = (req as any).user.id;
       const { studentCourses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       const { AuditLogger } = await import('./src/services/AuditLogger');
       
       await db.update(studentCourses)
@@ -794,8 +930,8 @@ app.get("/api/health", (req, res) => {
       const userId = (req as any).user.id;
       const { courseId } = req.params;
       const { studentCourses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       const { AuditLogger } = await import('./src/services/AuditLogger');
       
       await db.delete(studentCourses).where(
@@ -817,7 +953,7 @@ app.get("/api/health", (req, res) => {
   app.get("/api/admin/users", requireAuth, requireRole(['Administrator', 'ICT Admin']), async (req, res) => {
     try {
       const { users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const allUsers = await db.select({
         id: users.id,
         name: users.name,
@@ -835,8 +971,12 @@ app.get("/api/health", (req, res) => {
     try {
       const { name, email, role, password } = req.body;
       const { users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
       const { AuditLogger } = await import('./src/services/AuditLogger');
+      
+      const actorRole = (req as any).user.role;
+      if (actorRole !== 'Administrator' && role === 'Administrator') {
+          return res.status(403).json({ error: "Unauthorized: Cannot create Administrator" });
+      }
 
       // simple check
       if (!name || !email || !role || !password) {
@@ -967,7 +1107,14 @@ app.get("/api/health", (req, res) => {
       const { eq } = await import("drizzle-orm");
       const { AuditLogger } = await import("./src/services/AuditLogger");
 
-      const updateData: any = { name, email, role };
+      const actorRole = (req as any).user.role;
+      // Prevent role escalation
+      let finalRole = role;
+      if (actorRole !== 'Administrator' && role === 'Administrator') {
+          return res.status(403).json({ error: "Unauthorized: Cannot escalate to Administrator" });
+      }
+      
+      const updateData: any = { name, email, role: finalRole };
       if (password) updateData.password = password;
 
       const [updatedUser] = await db.update(users)
@@ -1026,10 +1173,54 @@ app.get("/api/health", (req, res) => {
   });
 
 
+
+  app.get("/api/admin/result-audit-logs", requireAuth, requireRole(['Administrator', 'Registrar', 'ICT Admin']), async (req, res) => {
+    try {
+      const { alias } = await import('drizzle-orm/pg-core');
+      const studentUsers = alias(schema.users, 'student_users');
+      
+      const logs = await db.select({
+        id: schema.resultAuditLogs.id,
+        action: schema.resultAuditLogs.action,
+        role: schema.resultAuditLogs.role,
+        oldCa: schema.resultAuditLogs.oldCa,
+        newCa: schema.resultAuditLogs.newCa,
+        oldExam: schema.resultAuditLogs.oldExam,
+        newExam: schema.resultAuditLogs.newExam,
+        oldGrade: schema.resultAuditLogs.oldGrade,
+        newGrade: schema.resultAuditLogs.newGrade,
+        reason: schema.resultAuditLogs.reason,
+        ipAddress: schema.resultAuditLogs.ipAddress,
+        createdAt: schema.resultAuditLogs.createdAt,
+        user: {
+          name: schema.users.name,
+          email: schema.users.email
+        },
+        student: {
+          matricNo: studentUsers.username,
+          name: studentUsers.name
+        },
+        course: {
+          code: schema.courses.code
+        }
+      })
+      .from(schema.resultAuditLogs)
+      .leftJoin(schema.users, eq(schema.resultAuditLogs.userId, schema.users.id))
+      .leftJoin(studentUsers, eq(schema.resultAuditLogs.studentId, studentUsers.id))
+      .leftJoin(schema.courses, eq(schema.resultAuditLogs.courseId, schema.courses.id))
+      .orderBy(desc(schema.resultAuditLogs.createdAt));
+
+      res.json(logs);
+    } catch(e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to fetch result audit logs" });
+    }
+  });
+
   app.get("/api/admin/audit", requireAuth, requireRole(['Administrator', 'ICT Admin']), async (req, res) => {
     try {
       const { auditTrails, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { desc, eq } = await import('drizzle-orm');
       const trails = await db.select({
         id: auditTrails.id,
@@ -1058,7 +1249,7 @@ app.get("/api/health", (req, res) => {
   app.get("/api/events/upcoming", async (req, res) => {
     try {
       const { calendarEvents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { gte, asc, and, eq, ilike } = await import('drizzle-orm');
       
       const category = req.query.category as string;
@@ -1086,8 +1277,8 @@ app.get("/api/health", (req, res) => {
   app.get("/api/calendar/events", requireAuth, async (req, res) => {
     try {
       const { calendarEvents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const events = await db.select()
         .from(calendarEvents)
@@ -1104,7 +1295,7 @@ app.get("/api/health", (req, res) => {
     try {
       const { courseId, title, type, startTime, endTime, description } = req.body;
       const { calendarEvents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newEvent] = await db.insert(calendarEvents).values({
         courseId: courseId || null,
@@ -1119,7 +1310,7 @@ app.get("/api/health", (req, res) => {
       // Notify students if it's related to a course
       if (courseId) {
         const { studentCourses, notifications } = await import('./src/db/schema');
-        const { eq } = await import('drizzle-orm');
+        
         const enrolledStudents = await db.select({ studentId: studentCourses.studentId })
           .from(studentCourses)
           .where(eq(studentCourses.courseId, courseId));
@@ -1149,8 +1340,8 @@ app.get("/api/health", (req, res) => {
       const { id } = req.params;
       const { courseId, title, type, startTime, endTime, description } = req.body;
       const { calendarEvents, studentCourses, notifications } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       
       const [updatedEvent] = await db.update(calendarEvents).set({
         courseId: courseId || null,
@@ -1190,8 +1381,8 @@ app.get("/api/health", (req, res) => {
     try {
       const { id } = req.params;
       const { calendarEvents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       
       await db.delete(calendarEvents).where(and(eq(calendarEvents.id, parseInt(id)), eq(calendarEvents.userId, (req as any).user.id)));
       res.json({ success: true });
@@ -1201,41 +1392,49 @@ app.get("/api/health", (req, res) => {
     }
   });
 
-  app.get("/api/lecturer/courses", requireAuth, requireRole(['Lecturer']), async (req, res) => {
+  app.get("/api/lecturer/courses", requireAuth, requireRole(['Lecturer', 'Administrator', 'HOD', 'Dean']), async (req, res) => {
     try {
-      const lecturerId = (req as any).user.id;
-      const { courses, studentCourses, courseAllocations } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, sql } = await import('drizzle-orm');
+      const userId = (req as any).user.id;
+      const userRole = (req as any).user.role;
       
+      const [activeSession] = await db.select().from(schema.academicSessions).where(eq(schema.academicSessions.isActive, true));
+      const currentSessionName = activeSession?.name || '2024/2025';
+
+      const whereClause = userRole === 'Lecturer'
+         ? and(eq(schema.courseAllocations.lecturerId, userId), eq(schema.courseAllocations.academicYear, currentSessionName))
+         : eq(schema.courseAllocations.academicYear, currentSessionName);
+
       const allCourses = await db.select({
-        id: courses.id,
-        code: courses.code,
-        title: courses.title,
-        credits: courses.credits,
-        departmentId: courses.departmentId,
-        semester: courses.semester,
-        studentsCount: sql<number>`count(${studentCourses.studentId})`.mapWith(Number)
+        id: schema.courses.id,
+        code: schema.courses.code,
+        title: schema.courses.title,
+        credits: schema.courses.credits,
+        departmentId: schema.courses.departmentId,
+        semester: schema.courses.semester,
+        studentsCount: sql`count(${schema.studentCourses.studentId})`.mapWith(Number)
       })
-      .from(courses)
-      .innerJoin(courseAllocations, eq(courses.id, courseAllocations.courseId))
-      .leftJoin(studentCourses, eq(courses.id, studentCourses.courseId))
-      .where(eq(courseAllocations.lecturerId, lecturerId))
-      .groupBy(courses.id, courseAllocations.id);
+      .from(schema.courses)
+      .innerJoin(schema.courseAllocations, eq(schema.courses.id, schema.courseAllocations.courseId))
+      .leftJoin(schema.studentCourses, and(
+          eq(schema.courses.id, schema.studentCourses.courseId),
+          eq(schema.studentCourses.status, 'registered')
+      ))
+      .where(whereClause)
+      .groupBy(schema.courses.id, schema.courseAllocations.id);
       
       res.json(allCourses);
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Failed to fetch lecturer courses' });
     }
-  });
+});
 
   app.get("/api/lecturer/grading/:courseId", requireAuth, requireRole(['Lecturer']), async (req, res) => {
     try {
       const { courseId } = req.params;
       const { studentCourses, users, results, courses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
 
       const [course] = await db.select().from(courses).where(eq(courses.id, parseInt(courseId)));
 
@@ -1268,8 +1467,8 @@ app.get("/api/health", (req, res) => {
       const { grades } = req.body; // Array of { studentId, score, grade, resultId }
       
       const { results, courses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       const { AuditLogger } = await import('./src/services/AuditLogger');
 
       const [course] = await db.select().from(courses).where(eq(courses.id, parseInt(courseId)));
@@ -1310,8 +1509,8 @@ app.get("/api/health", (req, res) => {
     try {
       const userId = (req as any).user.id;
       const { applications } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const appRecord = await db.select().from(applications).where(eq(applications.userId, userId));
       res.json({ application: appRecord[0] || null });
@@ -1323,7 +1522,7 @@ app.get("/api/health", (req, res) => {
   app.get("/api/applicant/next-reg-no", requireAuth, requireRole(['Applicant', 'Administrator', 'Registrar']), async (req, res) => {
     try {
       const { applications } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { count, eq } = await import('drizzle-orm');
       const result = await db.select({ value: count() }).from(applications);
       const nextId = (result[0]?.value || 0) + 1;
@@ -1365,7 +1564,7 @@ app.get("/api/health", (req, res) => {
         stateOfOriginDocument, otherDocument1, otherDocument2, otherDocument3, otherDocument4, otherDocument5, programOfInterest, session
       } = req.body;
       const { applications } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { AuditLogger } = await import('./src/services/AuditLogger');
       
       const fullName = `${firstName} ${lastName}`;
@@ -1395,7 +1594,7 @@ app.get("/api/health", (req, res) => {
   app.get("/api/registrar/applications", requireAuth, requireRole(['Registrar', 'Administrator', 'Admission Officer']), async (req, res) => {
     try {
       const { applications } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const allApps = await db.select().from(applications);
       res.json(allApps);
@@ -1409,8 +1608,8 @@ app.get("/api/health", (req, res) => {
       const { id } = req.params;
       const { status, screeningNotes, interviewDate } = req.body;
       const { applications } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       const { AuditLogger } = await import('./src/services/AuditLogger');
       const { EmailService } = await import('./src/services/EmailService');
       
@@ -1526,8 +1725,8 @@ END:VCALENDAR
   app.get("/api/bursary/payments", requireAuth, requireRole(['Bursary', 'Administrator']), async (req, res) => {
     try {
       const { payments, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const allPayments = await db.select({
         id: payments.id,
@@ -1550,7 +1749,7 @@ END:VCALENDAR
   app.get("/api/departments", async (req, res) => {
     try {
       const { departments } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const depts = await db.select().from(departments);
       res.json(depts);
     } catch (e) {
@@ -1561,7 +1760,7 @@ END:VCALENDAR
   app.get("/api/faculties", requireAuth, requireRole(['Administrator']), async (req, res) => {
     try {
       const { faculties, departments, courses, studentCourses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { eq, sql } = await import('drizzle-orm');
       
       const allFaculties = await db.select().from(faculties);
@@ -1599,7 +1798,7 @@ END:VCALENDAR
     try {
       const { name, description } = req.body;
       const { faculties } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newFaculty] = await db.insert(faculties).values({
         name,
@@ -1618,8 +1817,8 @@ END:VCALENDAR
       const { id } = req.params;
       const { name, description } = req.body;
       const { faculties } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       await db.update(faculties).set({ name, description }).where(eq(faculties.id, parseInt(id)));
       res.json({ success: true });
@@ -1633,8 +1832,8 @@ END:VCALENDAR
     try {
       const { id } = req.params;
       const { faculties } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       await db.delete(faculties).where(eq(faculties.id, parseInt(id)));
       res.json({ success: true });
@@ -1651,7 +1850,7 @@ END:VCALENDAR
         return res.status(400).json({ error: 'Expected an array of departments' });
       }
       const { departments } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const newDepts = await db.insert(departments).values(deptsData.map(d => ({
         name: d.name,
@@ -1670,7 +1869,7 @@ END:VCALENDAR
     try {
       const { name, description, facultyId } = req.body;
       const { departments } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newDept] = await db.insert(departments).values({
         name,
@@ -1689,8 +1888,8 @@ END:VCALENDAR
     try {
       const { id } = req.params;
       const { departments } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       await db.delete(departments).where(eq(departments.id, parseInt(id)));
       
@@ -1705,8 +1904,8 @@ END:VCALENDAR
     try {
       const { id } = req.params;
       const { courses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const deptCourses = await db.select().from(courses).where(eq(courses.departmentId, parseInt(id)));
       res.json(deptCourses);
@@ -1721,8 +1920,8 @@ END:VCALENDAR
       const { id } = req.params;
       const { name, description } = req.body;
       const { departments } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const [updatedDept] = await db.update(departments).set({ name, description, facultyId: req.body.facultyId ? parseInt(req.body.facultyId) : null }).where(eq(departments.id, parseInt(id))).returning();
       res.json(updatedDept);
@@ -1735,16 +1934,20 @@ END:VCALENDAR
   app.put("/api/courses/:id", requireAuth, requireRole(['Administrator']), async (req, res) => {
     try {
       const { id } = req.params;
-      const { code, title, credits, semester } = req.body;
+      const { code, title, credits, semester, type, contributesToGpa, contributesToCgpa, contributesToCreditUnits } = req.body;
       const { courses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const [updatedCourse] = await db.update(courses).set({
         code,
         title,
         credits: parseInt(credits),
-        semester
+        semester,
+        type: type || 'Core',
+        contributesToGpa: contributesToGpa !== undefined ? contributesToGpa : true,
+        contributesToCgpa: contributesToCgpa !== undefined ? contributesToCgpa : true,
+        contributesToCreditUnits: contributesToCreditUnits !== undefined ? contributesToCreditUnits : true,
       }).where(eq(courses.id, parseInt(id))).returning();
       
       res.json(updatedCourse);
@@ -1758,8 +1961,8 @@ END:VCALENDAR
     try {
       const { id } = req.params;
       const { courses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       await db.delete(courses).where(eq(courses.id, parseInt(id)));
       
@@ -1777,7 +1980,7 @@ END:VCALENDAR
         return res.status(400).json({ error: 'Expected an array of courses' });
       }
       const { courses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const newCourses = await db.insert(courses).values(coursesData.map(c => ({
         code: c.code,
@@ -1799,7 +2002,7 @@ END:VCALENDAR
   app.get("/api/academic/reports/enrollment", requireAuth, requireRole(['Administrator', 'Academic Officer']), async (req, res) => {
     try {
       const { studentCourses, courses, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { eq, sql } = await import('drizzle-orm');
       
       const enrollments = await db.select({
@@ -1825,8 +2028,8 @@ END:VCALENDAR
   app.get("/api/academic/reports/performance", requireAuth, requireRole(['Administrator', 'Academic Officer']), async (req, res) => {
     try {
       const { results, courses, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const performance = await db.select({
         courseCode: courses.code,
@@ -1851,7 +2054,7 @@ END:VCALENDAR
   app.get("/api/academic/courses", requireAuth, requireRole(['Administrator', 'Academic Officer']), async (req, res) => {
     try {
       const { courses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const allCourses = await db.select().from(courses);
       res.json(allCourses);
     } catch (e) {
@@ -1863,8 +2066,8 @@ END:VCALENDAR
   app.get("/api/academic/lecturers", requireAuth, requireRole(['Administrator', 'Academic Officer']), async (req, res) => {
     try {
       const { users } = await import('./src/db/schema');
-      const { eq } = await import('drizzle-orm');
-      const { db } = await import('./src/db');
+      
+      
       const lecturers = await db.select({
         id: users.id,
         name: users.name,
@@ -1880,8 +2083,8 @@ END:VCALENDAR
   app.get("/api/academic/timetables", requireAuth, async (req, res) => {
     try {
       const { timetables, courses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, desc } = await import('drizzle-orm');
+      
+      
       
       const tt = await db.select({
         id: timetables.id,
@@ -1908,8 +2111,8 @@ END:VCALENDAR
     try {
       const { courseId, dayOfWeek, startTime, endTime, venue } = req.body;
       const { timetables, courses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       
       // Conflict Detection Logic
       // Check for same day and venue
@@ -1966,8 +2169,8 @@ END:VCALENDAR
     try {
       const { id } = req.params;
       const { timetables } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       await db.delete(timetables).where(eq(timetables.id, parseInt(id)));
       res.json({ success: true });
@@ -1980,8 +2183,8 @@ END:VCALENDAR
   app.get("/api/academic/allocations", requireAuth, requireRole(['Administrator', 'Academic Officer']), async (req, res) => {
     try {
       const { courseAllocations, courses, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, desc } = await import('drizzle-orm');
+      
+      
       
       const allocs = await db.select({
         id: courseAllocations.id,
@@ -2009,7 +2212,7 @@ END:VCALENDAR
     try {
       const { courseId, lecturerId, academicYear, semester } = req.body;
       const { courseAllocations } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newAlloc] = await db.insert(courseAllocations).values({
         courseId: parseInt(courseId),
@@ -2029,8 +2232,8 @@ END:VCALENDAR
     try {
       const { id } = req.params;
       const { courseAllocations } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       await db.delete(courseAllocations).where(eq(courseAllocations.id, parseInt(id)));
       res.json({ success: true });
@@ -2043,8 +2246,8 @@ END:VCALENDAR
   app.get("/api/academic/attendance", requireAuth, requireRole(['Administrator', 'Academic Officer']), async (req, res) => {
     try {
       const { lecturerAttendance, timetables, courses, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, desc } = await import('drizzle-orm');
+      
+      
       
       const atts = await db.select({
         id: lecturerAttendance.id,
@@ -2071,7 +2274,7 @@ END:VCALENDAR
     try {
       const { lecturerId, courseId, timetableId, date, status, notes } = req.body;
       const { lecturerAttendance } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newAtt] = await db.insert(lecturerAttendance).values({
         lecturerId: parseInt(lecturerId),
@@ -2093,7 +2296,7 @@ END:VCALENDAR
   app.get("/api/academic/calendar-events", requireAuth, async (req, res) => {
     try {
       const { academicCalendarEvents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { asc } = await import('drizzle-orm');
       
       const events = await db.select()
@@ -2110,7 +2313,7 @@ END:VCALENDAR
   app.get("/api/academic/spaces", requireAuth, async (req, res) => {
     try {
       const { campusSpaces } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const spaces = await db.select().from(campusSpaces);
       spaces.forEach((s: any) => {
         try { s.equipment = JSON.parse(s.equipment || '[]'); } catch(e) { s.equipment = []; }
@@ -2126,7 +2329,7 @@ END:VCALENDAR
     try {
       const { name, capacity, type, equipment } = req.body;
       const { campusSpaces } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const eqString = equipment ? JSON.stringify(equipment) : '[]';
       const [newSpace] = await db.insert(campusSpaces).values({ name, capacity, type, equipment: eqString }).returning();
       res.json(newSpace);
@@ -2140,8 +2343,8 @@ END:VCALENDAR
     try {
       const { id } = req.params;
       const { campusSpaces } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       await db.delete(campusSpaces).where(eq(campusSpaces.id, parseInt(id)));
       res.json({ success: true });
     } catch (e) {
@@ -2153,8 +2356,8 @@ END:VCALENDAR
   app.get("/api/academic/space-bookings", requireAuth, async (req, res) => {
     try {
       const { spaceBookings, campusSpaces, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, desc } = await import('drizzle-orm');
+      
+      
       const bookings = await db.select({
         id: spaceBookings.id,
         spaceId: spaceBookings.spaceId,
@@ -2180,8 +2383,8 @@ END:VCALENDAR
     try {
       const { spaceId, purpose, date, startTime, endTime } = req.body;
       const { spaceBookings, campusSpaces } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       
       const newDate = new Date(date);
       
@@ -2235,8 +2438,8 @@ END:VCALENDAR
     try {
       const { id } = req.params;
       const { spaceBookings } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       await db.delete(spaceBookings).where(eq(spaceBookings.id, parseInt(id)));
       res.json({ success: true });
     } catch (e) {
@@ -2249,7 +2452,7 @@ END:VCALENDAR
     try {
       const { title, description, startDate, endDate, eventType } = req.body;
       const { academicCalendarEvents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newEvent] = await db.insert(academicCalendarEvents).values({
         title,
@@ -2270,8 +2473,8 @@ END:VCALENDAR
     try {
       const { id } = req.params;
       const { academicCalendarEvents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       await db.delete(academicCalendarEvents).where(eq(academicCalendarEvents.id, parseInt(id)));
       res.json({ success: true });
@@ -2283,16 +2486,20 @@ END:VCALENDAR
 
   app.post("/api/courses", requireAuth, requireRole(['Administrator']), async (req, res) => {
     try {
-      const { code, title, credits, departmentId, semester } = req.body;
+      const { code, title, credits, departmentId, semester, type, contributesToGpa, contributesToCgpa, contributesToCreditUnits } = req.body;
       const { courses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newCourse] = await db.insert(courses).values({
         code,
         title,
         credits: parseInt(credits),
         departmentId: parseInt(departmentId),
-        semester
+        semester,
+        type: type || 'Core',
+        contributesToGpa: contributesToGpa !== undefined ? contributesToGpa : true,
+        contributesToCgpa: contributesToCgpa !== undefined ? contributesToCgpa : true,
+        contributesToCreditUnits: contributesToCreditUnits !== undefined ? contributesToCreditUnits : true,
       }).returning();
       
       res.json(newCourse);
@@ -2348,8 +2555,8 @@ END:VCALENDAR
   app.get("/api/student/favorite-documents", requireAuth, async (req, res) => {
     try {
       const { favoriteDocuments, documents, courses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, desc } = await import('drizzle-orm');
+      
+      
       
       const userId = (req as any).user.id;
       
@@ -2380,7 +2587,7 @@ END:VCALENDAR
     try {
       const { documentId } = req.params;
       const { favoriteDocuments } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { and, eq } = await import('drizzle-orm');
       
       const userId = (req as any).user.id;
@@ -2414,7 +2621,7 @@ END:VCALENDAR
   app.get("/api/library/books", requireAuth, async (req, res) => {
     try {
       const { books } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const allBooks = await db.select().from(books);
       res.json(allBooks);
@@ -2429,7 +2636,7 @@ END:VCALENDAR
     try {
       const { title, author, category, coverColor, fileUrl, fileType, fileSize } = req.body;
       const { books } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newBook] = await db.insert(books).values({
         title,
@@ -2450,8 +2657,8 @@ END:VCALENDAR
       const { id } = req.params;
       const { title, author, category, coverColor, available, fileUrl, fileType, fileSize } = req.body;
       const { books } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const [updatedBook] = await db.update(books).set({
         title,
@@ -2474,8 +2681,8 @@ END:VCALENDAR
     try {
       const { id } = req.params;
       const { books } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       await db.delete(books).where(eq(books.id, parseInt(id)));
       
@@ -2489,8 +2696,8 @@ END:VCALENDAR
   app.get("/api/student/loans", requireAuth, async (req, res) => {
     try {
       const { bookLoans, books } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, desc } = await import('drizzle-orm');
+      
+      
       
       const userId = (req as any).user.id;
       
@@ -2518,8 +2725,8 @@ END:VCALENDAR
     try {
       const { bookId } = req.params;
       const { bookLoans, books } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const userId = (req as any).user.id;
       const bId = parseInt(bookId);
@@ -2553,8 +2760,8 @@ END:VCALENDAR
     try {
       const { loanId } = req.params;
       const { bookLoans, books } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       
       const userId = (req as any).user.id;
       const lId = parseInt(loanId);
@@ -2580,7 +2787,7 @@ END:VCALENDAR
   app.get("/api/student/mandatory-documents", requireAuth, async (req, res) => {
     try {
       const { studentMandatoryDocuments, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { desc, eq } = await import('drizzle-orm');
       
       const userId = (req as any).user.id;
@@ -2613,7 +2820,7 @@ END:VCALENDAR
   app.post("/api/student/mandatory-documents", requireAuth, async (req, res) => {
     try {
       const { studentMandatoryDocuments, notifications } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const userId = (req as any).user.id;
       const { documentType, title, fileUrl, fileSize, fileType } = req.body;
 
@@ -2655,8 +2862,8 @@ END:VCALENDAR
   app.delete("/api/student/mandatory-documents/:id", requireAuth, async (req, res) => {
     try {
       const { studentMandatoryDocuments } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       const userId = (req as any).user.id;
       const docId = Number(req.params.id);
 
@@ -2673,7 +2880,7 @@ END:VCALENDAR
   app.get("/api/admin/mandatory-documents", requireAuth, async (req, res) => {
     try {
       const { studentMandatoryDocuments, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { desc, eq } = await import('drizzle-orm');
       const { alias } = await import('drizzle-orm/pg-core');
 
@@ -2720,8 +2927,8 @@ END:VCALENDAR
   app.put("/api/admin/mandatory-documents/:id/review", requireAuth, async (req, res) => {
     try {
       const { studentMandatoryDocuments, notifications } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       const adminUserId = (req as any).user.id;
       const docId = Number(req.params.id);
       const { status, adminFeedback } = req.body;
@@ -2767,7 +2974,7 @@ END:VCALENDAR
   app.get("/api/student/documents", requireAuth, async (req, res) => {
     try {
       const { documents, courses, studentCourses, favoriteDocuments } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { desc, eq, inArray, and } = await import('drizzle-orm');
       
       const userId = (req as any).user.id;
@@ -2813,7 +3020,7 @@ END:VCALENDAR
 app.get("/api/student/recent-documents", requireAuth, async (req, res) => {
     try {
       const { documents, courses, studentCourses, favoriteDocuments } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { desc, eq, inArray } = await import('drizzle-orm');
       
       const userId = (req as any).user.id;
@@ -2861,7 +3068,7 @@ app.get("/api/student/recent-documents", requireAuth, async (req, res) => {
       const { courseId } = req.params;
       const userId = (req as any).user.id;
       const { courseDiscussions, users, courseDiscussionReplies, courseDiscussionLikes } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { eq, desc, sql, and } = await import('drizzle-orm');
       
       // Need a subquery for whether current user liked it
@@ -2938,8 +3145,8 @@ app.get("/api/student/recent-documents", requireAuth, async (req, res) => {
       const { discussionId } = req.params;
       const userId = (req as any).user.id;
       const { courseDiscussionLikes } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       
       const existing = await db.select().from(courseDiscussionLikes)
         .where(and(eq(courseDiscussionLikes.discussionId, parseInt(discussionId)), eq(courseDiscussionLikes.userId, userId)));
@@ -2967,7 +3174,7 @@ app.get("/api/student/recent-documents", requireAuth, async (req, res) => {
       const { title, content } = req.body;
       const userId = (req as any).user.id;
       const { courseDiscussions } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newDiscussion] = await db.insert(courseDiscussions).values({
         courseId: parseInt(courseId),
@@ -3007,7 +3214,7 @@ try {
       const { discussionId } = req.params;
       const userId = (req as any).user.id;
       const { courseDiscussionReplies, users, courseDiscussionReplyLikes } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { eq, asc, sql } = await import('drizzle-orm');
       
       const replies = await db.select({
@@ -3050,8 +3257,8 @@ try {
       const { discussionId } = req.params;
       const { isPinned } = req.body;
       const { courseDiscussions } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const [updated] = await db.update(courseDiscussions)
         .set({ isPinned: isPinned })
@@ -3070,8 +3277,8 @@ try {
       const { replyId } = req.params;
       const userId = (req as any).user.id;
       const { courseDiscussionReplyLikes } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       
       const existing = await db.select().from(courseDiscussionReplyLikes)
         .where(and(eq(courseDiscussionReplyLikes.replyId, parseInt(replyId)), eq(courseDiscussionReplyLikes.userId, userId)));
@@ -3099,7 +3306,7 @@ try {
       const { content } = req.body;
       const userId = (req as any).user.id;
       const { courseDiscussionReplies } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newReply] = await db.insert(courseDiscussionReplies).values({
         discussionId: parseInt(discussionId),
@@ -3126,8 +3333,8 @@ try {
       const role = (req as any).user.role;
       
       const { courseDiscussions } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       
       if (role === 'Administrator' || role === 'Lecturer') {
          await db.delete(courseDiscussions).where(eq(courseDiscussions.id, parseInt(discussionId)));
@@ -3149,8 +3356,8 @@ try {
       const role = (req as any).user.role;
       
       const { courseDiscussionReplies } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       
       if (role === 'Administrator' || role === 'Lecturer') {
          await db.delete(courseDiscussionReplies).where(eq(courseDiscussionReplies.id, parseInt(replyId)));
@@ -3168,8 +3375,8 @@ try {
   app.get("/api/courses/:courseId/documents", requireAuth, async (req, res) => {
     try {
       const { documents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const docs = await db.select().from(documents).where(eq(documents.courseId, parseInt(req.params.courseId)));
       res.json(docs);
@@ -3181,7 +3388,7 @@ try {
     app.get("/api/admin/documents", requireAuth, requireRole(['Administrator', 'ICT Admin', 'Admin']), async (req, res) => {
     try {
       const { documents, courses, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { desc, eq } = await import('drizzle-orm');
       
       const allDocs = await db.select({
@@ -3207,7 +3414,7 @@ try {
   app.get("/api/admin/lms-stats", requireAuth, requireRole(['Administrator', 'ICT Admin', 'Admin']), async (req, res) => {
     try {
       const { documents, courses, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { count, eq } = await import('drizzle-orm');
       
       const docsCount = await db.select({ count: count() }).from(documents);
@@ -3229,8 +3436,8 @@ try {
   app.get("/api/documents", requireAuth, async (req, res) => {
     try {
       const { documents, courses, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, desc } = await import('drizzle-orm');
+      
+      
       
       const allDocs = await db.select({
         id: documents.id,
@@ -3268,7 +3475,7 @@ try {
       }
 
       const { documents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newDoc] = await db.insert(documents).values({
         title: title || 'Untitled Document',
@@ -3294,8 +3501,8 @@ try {
     try {
       const { title, description } = req.body;
       const { documents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       
       // Optionally check permissions (uploader or admin)
       
@@ -3313,8 +3520,8 @@ try {
   app.delete("/api/documents/:id", requireAuth, requireRole(["Administrator", "Admin", "ICT Admin", "Library", "Lecturer"]), async (req, res) => {
     try {
       const { documents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       await db.delete(documents).where(eq(documents.id, parseInt(req.params.id)));
       res.json({ success: true });
@@ -3329,8 +3536,8 @@ try {
     try {
       const { courseId } = req.params;
       const { studentCourses, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       
       const enrolledStudents = await db.select({
         id: users.id,
@@ -3354,8 +3561,8 @@ try {
       const { courseId } = req.params;
       const { date } = req.query;
       const { attendance } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and, sql } = await import('drizzle-orm');
+      
+      
 
       if (!date) {
         return res.status(400).json({ error: 'Date is required' });
@@ -3386,8 +3593,8 @@ try {
       const lecturerId = (req as any).user.id;
       
       const { attendance } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
 
       const parsedDate = new Date(date as string);
 
@@ -3421,8 +3628,8 @@ try {
     try {
       const studentId = (req as any).user.id;
       const { attendance, courses } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
 
       const records = await db.select({
         id: attendance.id,
@@ -3484,7 +3691,7 @@ try {
     try {
       const { facilityBookings, facilities } = await import('./src/db/schema.js');
       const { db } = await import('./src/db/index.js');
-      const { eq } = await import('drizzle-orm');
+      
       const userId = (req as any).user.id;
       
       const bookings = await db
@@ -3512,7 +3719,7 @@ try {
     try {
       const { facilityBookings } = await import('./src/db/schema.js');
       const { db } = await import('./src/db/index.js');
-      const { eq, and } = await import('drizzle-orm');
+      
       const { id } = req.params;
       const { status } = req.body;
       const userId = (req as any).user.id;
@@ -3538,7 +3745,7 @@ try {
   app.get("/api/hostels", requireAuth, async (req, res) => {
     try {
       const { hostels } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const allHostels = await db.select().from(hostels);
       res.json(allHostels);
     } catch (e) {
@@ -3551,7 +3758,7 @@ try {
     try {
       const { name, capacity, gender, description, status } = req.body;
       const { hostels } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const [newHostel] = await db.insert(hostels).values({
         name, capacity, gender, description, status: status || 'Available'
       }).returning();
@@ -3566,8 +3773,8 @@ try {
     try {
       const { id } = req.params;
       const { hostelRooms } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       const rooms = await db.select().from(hostelRooms).where(eq(hostelRooms.hostelId, parseInt(id)));
       res.json(rooms);
     } catch (e) {
@@ -3581,7 +3788,7 @@ try {
       const { id } = req.params;
       const { roomNumber, capacity } = req.body;
       const { hostelRooms } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const [newRoom] = await db.insert(hostelRooms).values({
         hostelId: parseInt(id),
         roomNumber,
@@ -3598,8 +3805,8 @@ try {
   app.get("/api/hostel-applications", requireAuth, requireRole(['Administrator', 'Portal']), async (req, res) => {
     try {
       const { hostelApplications, users, hostels, hostelRooms } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const apps = await db.select({
         id: hostelApplications.id,
@@ -3628,7 +3835,7 @@ try {
       const studentId = (req as any).user.id;
       const { session } = req.body;
       const { hostelApplications } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newApp] = await db.insert(hostelApplications).values({
         studentId,
@@ -3647,8 +3854,8 @@ try {
     try {
       const studentId = (req as any).user.id;
       const { hostelApplications, hostels, hostelRooms } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, desc } = await import('drizzle-orm');
+      
+      
       
       const apps = await db.select({
         id: hostelApplications.id,
@@ -3677,7 +3884,7 @@ try {
       const { id } = req.params;
       const { status, hostelId, roomId } = req.body;
       const { hostelApplications, hostelRooms } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { eq, sql } = await import('drizzle-orm');
       
       if (status === 'Allocated' && roomId) {
@@ -3708,8 +3915,8 @@ try {
     try {
       const userId = (req as any).user.id;
       const { studentCourses, courses, timetables, academicCalendarEvents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       
       // Get enrolled courses
       const enrolled = await db.select({
@@ -3819,7 +4026,7 @@ try {
     try {
       const userId = (req as any).user.id;
       const { studentCourses, courses, results } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { eq, and, ne } = await import('drizzle-orm');
       
       // Get all registered courses and their credits
@@ -3873,8 +4080,8 @@ try {
       const userId = (req as any).user.id;
       const { profilePicture, name, phone, department, faculty } = req.body;
       const { users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
 
       const updateData: any = {};
       if (profilePicture !== undefined) updateData.profilePicture = profilePicture;
@@ -3909,7 +4116,7 @@ try {
   app.get("/api/jobs", requireAuth, async (req, res) => {
     try {
       const { jobs } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { desc } = await import('drizzle-orm');
       
       const allJobs = await db.select().from(jobs).orderBy(desc(jobs.createdAt));
@@ -3923,7 +4130,7 @@ try {
   app.post("/api/jobs", requireAuth, requireRole(['Administrator', 'Admin', 'Lecturer']), async (req, res) => {
     try {
       const { jobs } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const userId = (req as any).user.id;
       
       const [newJob] = await db.insert(jobs).values({
@@ -3941,8 +4148,8 @@ try {
   app.get("/api/jobs/applications", requireAuth, async (req, res) => {
     try {
       const { jobApplications, jobs } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, desc } = await import('drizzle-orm');
+      
+      
       const userId = (req as any).user.id;
       
       const myApplications = await db.select({
@@ -3964,7 +4171,7 @@ try {
   app.post("/api/jobs/:id/apply", requireAuth, async (req, res) => {
     try {
       const { jobApplications } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const userId = (req as any).user.id;
       const jobId = parseInt(req.params.id);
       
@@ -3986,8 +4193,8 @@ try {
   app.put("/api/users/theme", requireAuth, async (req, res) => {
     try {
       const { users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const { theme } = req.body;
       const userId = (req as any).user.id;
@@ -4006,7 +4213,7 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
   try {
     const { title, message, type, userId } = req.body;
     const { notifications } = await import('./src/db/schema');
-    const { db } = await import('./src/db');
+    
     
     // Only admins or system can create notifications for others
     const reqUserId = (req as any).user.id;
@@ -4033,8 +4240,8 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
     try {
       const userId = (req as any).user.id;
       const { notifications } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, desc } = await import('drizzle-orm');
+      
+      
       
       const userNotifications = await db.select().from(notifications)
         .where(eq(notifications.userId, userId))
@@ -4052,8 +4259,8 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
     try {
       const userId = (req as any).user.id;
       const { notifications } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       
       await db.update(notifications)
         .set({ isRead: 'true' })
@@ -4071,8 +4278,8 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
       const userId = (req as any).user.id;
       const { id } = req.params;
       const { notifications } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, and } = await import('drizzle-orm');
+      
+      
       
       await db.update(notifications)
         .set({ isRead: 'true' })
@@ -4128,8 +4335,8 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
   app.get("/api/clinic/records", requireAuth, async (req, res) => {
     try {
       const { clinicRecords, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, desc } = await import('drizzle-orm');
+      
+      
       
       const records = await db.select({
         id: clinicRecords.id,
@@ -4159,8 +4366,8 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
   app.get("/api/wellness", requireAuth, async (req, res) => {
     try {
       const { studentWellnessLogs } = await import('./src/db/schema');
-      const { eq, desc } = await import('drizzle-orm');
-      const { db } = await import('./src/db');
+      
+      
       
       const logs = await db.select()
         .from(studentWellnessLogs)
@@ -4179,7 +4386,7 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
     try {
       const { mood, sleepHours, nutritionQuality, waterIntake, exerciseMinutes, notes } = req.body;
       const { studentWellnessLogs } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newLog] = await db.insert(studentWellnessLogs).values({
         studentId: (req as any).user.id,
@@ -4202,8 +4409,8 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
     try {
       const { studentId } = req.params;
       const { clinicRecords, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, desc } = await import('drizzle-orm');
+      
+      
       
       const records = await db.select({
         id: clinicRecords.id,
@@ -4234,7 +4441,7 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
       const staffId = (req as any).user.id;
       const { studentId, symptoms, diagnosis, prescription, status, notes } = req.body;
       const { clinicRecords } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const newRecord = await db.insert(clinicRecords).values({
         studentId: parseInt(studentId),
@@ -4260,8 +4467,8 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
       const { id } = req.params;
       const { symptoms, diagnosis, prescription, status, notes } = req.body;
       const { clinicRecords } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const [updated] = await db.update(clinicRecords).set({
         symptoms,
@@ -4282,8 +4489,8 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const { clinicRecords } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       await db.delete(clinicRecords).where(eq(clinicRecords.id, parseInt(id)));
       res.json({ success: true });
@@ -4296,8 +4503,8 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
   app.get("/api/clinic/doctors", requireAuth, async (req, res) => {
     try {
       const { users } = await import('./src/db/schema');
-      const { eq } = await import('drizzle-orm');
-      const { db } = await import('./src/db');
+      
+      
       const doctors = await db.select({
         id: users.id,
         name: users.name,
@@ -4314,8 +4521,8 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
     try {
       const { status } = req.body;
       const { users } = await import('./src/db/schema');
-      const { eq } = await import('drizzle-orm');
-      const { db } = await import('./src/db');
+      
+      
       
       const [updated] = await db.update(users)
         .set({ doctorStatus: status })
@@ -4333,8 +4540,8 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
     try {
       const { studentId } = req.params;
       const { clinicAppointments, users } = await import('./src/db/schema');
-      const { eq, desc } = await import('drizzle-orm');
-      const { db } = await import('./src/db');
+      
+      
       
       const appointments = await db.select({
         id: clinicAppointments.id,
@@ -4359,7 +4566,7 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
     try {
       const { studentId, doctorId, appointmentDate, reason } = req.body;
       const { clinicAppointments } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
 
 
       const requestedDate = new Date(appointmentDate);
@@ -4417,8 +4624,8 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
       const { id } = req.params;
       const { status } = req.body;
       const { clinicAppointments } = await import('./src/db/schema');
-      const { eq } = await import('drizzle-orm');
-      const { db } = await import('./src/db');
+      
+      
       
       const [updated] = await db.update(clinicAppointments)
         .set({ status })
@@ -4440,7 +4647,7 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
       const { appointmentDate, doctorId } = req.body;
       const { clinicAppointments } = await import('./src/db/schema');
       const { eq, and, ne, gt, lt } = await import('drizzle-orm');
-      const { db } = await import('./src/db');
+      
 
       const requestedDate = new Date(appointmentDate);
       const thirtyMinsBefore = new Date(requestedDate.getTime() - 30 * 60000);
@@ -4499,7 +4706,7 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
     try {
       const { appointmentId, overallRating, waitTimeRating, cleanlinessRating, staffFriendlinessRating, comments } = req.body;
       const { clinicSurveys } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newSurvey] = await db.insert(clinicSurveys).values({
         studentId: (req as any).user.id,
@@ -4521,8 +4728,8 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
   app.get("/api/clinic/surveys", requireAuth, async (req, res) => {
     try {
       const { clinicSurveys, clinicAppointments, users } = await import('./src/db/schema');
-      const { eq, desc } = await import('drizzle-orm');
-      const { db } = await import('./src/db');
+      
+      
       
       const surveys = await db.select({
         id: clinicSurveys.id,
@@ -4552,7 +4759,7 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
     try {
       const { clinicSurveys } = await import('./src/db/schema');
       const { sql } = await import('drizzle-orm');
-      const { db } = await import('./src/db');
+      
       
       const stats = await db.select({
         avgOverall: sql<number>`AVG(overall_rating)`,
@@ -4573,8 +4780,8 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
   app.get("/api/clinic/medications", requireAuth, async (req, res) => {
     try {
       const { medicationReminders } = await import('./src/db/schema');
-      const { eq, desc } = await import('drizzle-orm');
-      const { db } = await import('./src/db');
+      
+      
       
       const reminders = await db.select()
         .from(medicationReminders)
@@ -4592,7 +4799,7 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
     try {
       const { medicationName, dosage, frequency, times, startDate, endDate, notes } = req.body;
       const { medicationReminders } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newReminder] = await db.insert(medicationReminders).values({
         studentId: (req as any).user.id,
@@ -4617,8 +4824,8 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
       const { id } = req.params;
       const { isActive } = req.body;
       const { medicationReminders } = await import('./src/db/schema');
-      const { eq, and } = await import('drizzle-orm');
-      const { db } = await import('./src/db');
+      
+      
       
       const [updatedReminder] = await db.update(medicationReminders)
         .set({ isActive })
@@ -4643,8 +4850,8 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const { medicationReminders } = await import('./src/db/schema');
-      const { eq, and } = await import('drizzle-orm');
-      const { db } = await import('./src/db');
+      
+      
       
       await db.delete(medicationReminders)
         .where(and(
@@ -4664,7 +4871,7 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
     try {
       const { campusWellnessFeed, users } = await import('./src/db/schema');
       const { eq, desc, and } = await import('drizzle-orm');
-      const { db } = await import('./src/db');
+      
       
       const feed = await db.select({
         id: campusWellnessFeed.id,
@@ -4691,7 +4898,7 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
     try {
       const { title, content, category, isPublished } = req.body;
       const { campusWellnessFeed } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newPost] = await db.insert(campusWellnessFeed).values({
         title,
@@ -4711,8 +4918,8 @@ app.post('/api/notifications', requireAuth, async (req, res) => {
   app.get("/api/clinic/appointments", requireAuth, async (req, res) => {
     try {
       const { clinicAppointments, users } = await import('./src/db/schema');
-      const { eq, desc } = await import('drizzle-orm');
-      const { db } = await import('./src/db');
+      
+      
       
       const st = db.select({ id: users.id, name: users.name, username: users.username }).from(users).as('st');
       const dr = db.select({ id: users.id, name: users.name }).from(users).as('dr');
@@ -4743,7 +4950,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { query } = req.params;
       const { users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { eq, or, ilike } = await import('drizzle-orm');
       
       const student = await db.select({
@@ -4774,7 +4981,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
   app.get("/api/clinic/inventory", requireAuth, async (req, res) => {
     try {
       const { pharmacyInventory } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const inventory = await db.select().from(pharmacyInventory);
       res.json(inventory);
@@ -4788,7 +4995,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { name, sku, description, category, unit, stockLevel, reorderThreshold, expiryDate, supplier } = req.body;
       const { pharmacyInventory } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const newItem = await db.insert(pharmacyInventory).values({
         name,
@@ -4815,8 +5022,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
       const { id } = req.params;
       const { name, sku, description, category, unit, stockLevel, reorderThreshold, expiryDate, supplier } = req.body;
       const { pharmacyInventory } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const updatedItem = await db.update(pharmacyInventory).set({
         name,
@@ -4837,7 +5044,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
       // If stock drops below threshold, we could create a notification here
       if (updatedItem[0].stockLevel <= updatedItem[0].reorderThreshold) {
         const { notifications, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
         const clinicStaff = await db.select({ id: users.id }).from(users).where(eq(users.role, 'Clinic'));
         if (clinicStaff.length > 0) {
           const notifs = clinicStaff.map(staff => ({
@@ -4863,8 +5070,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const { pharmacyInventory } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       await db.delete(pharmacyInventory).where(eq(pharmacyInventory.id, parseInt(id)));
       res.json({ success: true });
@@ -4881,7 +5088,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { clinicRecords, users } = await import('./src/db/schema');
       const { eq, isNotNull, desc } = await import('drizzle-orm');
-      const { db } = await import('./src/db');
+      
       
       const st = db.select({ id: users.id, name: users.name, username: users.username }).from(users).as('st');
       const dr = db.select({ id: users.id, name: users.name }).from(users).as('dr');
@@ -4914,8 +5121,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
       const { id } = req.params;
       const { status } = req.body;
       const { clinicRecords } = await import('./src/db/schema');
-      const { eq } = await import('drizzle-orm');
-      const { db } = await import('./src/db');
+      
+      
       
       const updated = await db.update(clinicRecords)
         .set({ prescriptionStatus: status })
@@ -4934,8 +5141,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { studentId } = req.params;
       const { studentMedicalProfiles } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const profile = await db.select().from(studentMedicalProfiles).where(eq(studentMedicalProfiles.studentId, parseInt(studentId))).limit(1);
       
@@ -4966,8 +5173,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
       const { studentId } = req.params;
       const data = req.body;
       const { studentMedicalProfiles } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       // Check if profile exists
       const existing = await db.select().from(studentMedicalProfiles).where(eq(studentMedicalProfiles.studentId, parseInt(studentId))).limit(1);
@@ -5000,7 +5207,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
       const { studentId } = req.params;
       const { title, description, category, fileUrl, fileType, fileSize } = req.body;
       const { documents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newDoc] = await db.insert(documents).values({
         title: title || 'Untitled Document',
@@ -5025,7 +5232,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
   app.get("/api/clinic/forms", requireAuth, async (req, res) => {
     try {
       const { clinicForms } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { desc } = await import('drizzle-orm');
       
       const forms = await db.select().from(clinicForms).orderBy(desc(clinicForms.createdAt));
@@ -5040,7 +5247,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { title, description, fields, isActive } = req.body;
       const { clinicForms } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newForm] = await db.insert(clinicForms).values({
         title,
@@ -5061,8 +5268,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { title, description, fields, isActive } = req.body;
       const { clinicForms } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const [updatedForm] = await db.update(clinicForms)
         .set({ title, description, fields, isActive })
@@ -5079,8 +5286,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
   app.delete("/api/clinic/forms/:id", requireAuth, async (req, res) => {
     try {
       const { clinicForms } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       await db.delete(clinicForms).where(eq(clinicForms.id, parseInt(req.params.id)));
       res.json({ success: true });
@@ -5094,8 +5301,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
   app.get("/api/clinic/form-submissions", requireAuth, async (req, res) => {
     try {
       const { clinicFormSubmissions, clinicForms, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, desc } = await import('drizzle-orm');
+      
+      
       
       const submissions = await db.select({
         id: clinicFormSubmissions.id,
@@ -5122,8 +5329,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { studentId } = req.params;
       const { clinicFormSubmissions, clinicForms } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, desc } = await import('drizzle-orm');
+      
+      
       
       const submissions = await db.select({
         id: clinicFormSubmissions.id,
@@ -5149,7 +5356,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { formId, data } = req.body;
       const { clinicFormSubmissions } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newSubmission] = await db.insert(clinicFormSubmissions).values({
         formId: parseInt(formId),
@@ -5168,8 +5375,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { status } = req.body;
       const { clinicFormSubmissions } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const [updatedSubmission] = await db.update(clinicFormSubmissions)
         .set({ status, reviewedBy: (req as any).user.id })
@@ -5187,8 +5394,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
   app.get("/api/clinic/lab-requests", requireAuth, async (req, res) => {
     try {
       const { clinicLabRequests, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, desc } = await import('drizzle-orm');
+      
+      
       
       // Need aliases for doctor and student
       const { alias } = await import('drizzle-orm/pg-core');
@@ -5222,8 +5429,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { studentId } = req.params;
       const { clinicLabRequests, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, desc } = await import('drizzle-orm');
+      
+      
       
       const { alias } = await import('drizzle-orm/pg-core');
       const doctorAlias = alias(users, 'doctor');
@@ -5254,7 +5461,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { studentId, testsRequested, notes } = req.body;
       const { clinicLabRequests, notifications, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { eq, ne, and } = await import('drizzle-orm');
       
       const doctorId = (req as any).user.id;
@@ -5294,8 +5501,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { status, resultsSummary } = req.body;
       const { clinicLabRequests } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const updateData: any = { status };
       if (resultsSummary !== undefined) updateData.resultsSummary = resultsSummary;
@@ -5316,8 +5523,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
   app.get("/api/clinic/health-insurance", requireAuth, async (req, res) => {
     try {
       const { healthInsuranceRecords, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const records = await db.select({
         id: healthInsuranceRecords.id,
@@ -5345,8 +5552,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { studentId } = req.params;
       const { healthInsuranceRecords } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const records = await db.select().from(healthInsuranceRecords).where(eq(healthInsuranceRecords.studentId, parseInt(studentId)));
       res.json(records);
@@ -5360,7 +5567,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { providerName, policyNumber, groupNumber, coverageStartDate, coverageEndDate } = req.body;
       const { healthInsuranceRecords } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const [newRecord] = await db.insert(healthInsuranceRecords).values({
         studentId: (req as any).user.id,
@@ -5382,8 +5589,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { status, verificationNotes } = req.body;
       const { healthInsuranceRecords } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const [updatedRecord] = await db.update(healthInsuranceRecords)
         .set({ status, verificationNotes })
@@ -5401,7 +5608,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { studentId } = req.params;
       const { documents, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { eq, and, desc } = await import('drizzle-orm');
       
       const docs = await db.select({
@@ -5434,7 +5641,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
       const { type, message } = req.body;
       const userId = (req as any).user.id;
       const { portalFeedback } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       await db.insert(portalFeedback).values({
         userId,
@@ -5454,7 +5661,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
   app.get("/api/public/calendar-events", async (req, res) => {
     try {
       const { academicCalendarEvents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { asc, gte } = await import('drizzle-orm');
       
       const events = await db.select()
@@ -5473,7 +5680,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
   app.get("/api/public/news", async (req, res) => {
     try {
       const { cmsNewsEvents, users } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { eq, and, desc } = await import('drizzle-orm');
       
       const news = await db.select({
@@ -5539,7 +5746,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
   app.get("/api/library/books", requireAuth, async (req, res) => {
     try {
       const { books } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { ilike, or } = await import('drizzle-orm');
       
       const search = req.query.search;
@@ -5567,8 +5774,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
       const bookId = parseInt(req.params.id);
       
       const { books, bookLoans } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       // Check if book is available
       const bookResult = await db.select().from(books).where(eq(books.id, bookId));
@@ -5601,8 +5808,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
       const studentId = (req as any).user.id;
       
       const { books, bookLoans } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, desc } = await import('drizzle-orm');
+      
+      
       
       const holds = await db.select({
         id: bookLoans.id,
@@ -5634,8 +5841,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const studentId = (req as any).user.id;
       const { users, studentMedicalProfiles } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const userRes = await db.select().from(users).where(eq(users.id, studentId));
       if (!userRes.length) return res.status(404).json({ error: 'User not found' });
@@ -5669,8 +5876,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
       const { phone, profilePicture, emergencyContactName, emergencyContactPhone, emergencyContactRelation } = req.body;
       
       const { users, studentMedicalProfiles } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       // Update user
       const userUpdate: any = {};
@@ -5723,8 +5930,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const section = req.query.section as string;
       const { contentBlocks } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq, desc } = await import('drizzle-orm');
+      
+      
       let query = db.select().from(contentBlocks).orderBy(desc(contentBlocks.createdAt));
       if (section) {
         query = db.select().from(contentBlocks).where(eq(contentBlocks.section, section)).orderBy(desc(contentBlocks.createdAt)) as any;
@@ -5741,8 +5948,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const { contentBlocks } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       const [block] = await db.select().from(contentBlocks).where(eq(contentBlocks.id, parseInt(id)));
       if (!block) return res.status(404).json({ error: 'Not found' });
       res.json(block);
@@ -5755,7 +5962,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
   app.post("/api/cms/content_blocks", requireAuth, requireRole(['Administrator', 'Admin', 'Content Manager']), async (req, res) => {
     try {
       const { contentBlocks } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const [newBlock] = await db.insert(contentBlocks).values({
         ...req.body,
         createdAt: new Date(),
@@ -5772,8 +5979,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const { contentBlocks } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       const updateData = { ...req.body };
       if (updateData.createdAt) updateData.createdAt = new Date(updateData.createdAt);
@@ -5794,8 +6001,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const { contentBlocks } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       await db.delete(contentBlocks).where(eq(contentBlocks.id, parseInt(id)));
       res.json({ success: true });
     } catch (e) {
@@ -5809,7 +6016,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
       const type = req.query.type as string;
       const includeFuture = req.query.includeFuture === 'true';
       const { cmsNewsEvents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { eq, desc, and, or, isNull, lte } = await import('drizzle-orm');
       
       let conditions = [];
@@ -5835,8 +6042,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const { cmsNewsEvents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       const [item] = await db.select().from(cmsNewsEvents).where(eq(cmsNewsEvents.id, parseInt(id)));
       if (!item) return res.status(404).json({ error: 'Not found' });
       res.json(item);
@@ -5849,7 +6056,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
   app.post("/api/cms/news_events", requireAuth, requireRole(['Administrator', 'Admin', 'Content Manager']), async (req, res) => {
     try {
       const { cmsNewsEvents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       
       const insertData = { ...req.body };
       if (insertData.date) insertData.date = new Date(insertData.date);
@@ -5880,8 +6087,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const { cmsNewsEvents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       
       // Fix dates mapping
       const updateData = { ...req.body };
@@ -5910,8 +6117,8 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const { cmsNewsEvents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
-      const { eq } = await import('drizzle-orm');
+      
+      
       await db.delete(cmsNewsEvents).where(eq(cmsNewsEvents.id, parseInt(id)));
       res.json({ success: true });
     } catch (e) {
@@ -5924,7 +6131,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 10;
       const { contentBlocks, cmsNewsEvents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { desc } = await import('drizzle-orm');
       
       const blocks = await db.select().from(contentBlocks).orderBy(desc(contentBlocks.createdAt)).limit(limit);
@@ -5961,7 +6168,7 @@ app.get("/api/clinic/student/search/:query", requireAuth, async (req, res) => {
 app.get("/api/messages", requireAuth, async (req, res) => {
   try {
     const { messages, users, courses } = await import('./src/db/schema');
-    const { db } = await import('./src/db');
+    
     const { eq, or, desc, and } = await import('drizzle-orm');
     const { alias } = await import('drizzle-orm/pg-core');
     const userId = (req as any).user.id;
@@ -6014,8 +6221,8 @@ app.get("/api/messages", requireAuth, async (req, res) => {
 app.post("/api/messages", requireAuth, async (req, res) => {
   try {
     const { messages, users, courses } = await import('./src/db/schema');
-    const { db } = await import('./src/db');
-    const { eq } = await import('drizzle-orm');
+    
+    
     const userId = (req as any).user.id;
     const { receiverId, courseId, subject, content, attachmentUrl, attachmentName } = req.body;
     
@@ -6078,8 +6285,8 @@ app.post("/api/messages", requireAuth, async (req, res) => {
 app.post("/api/messages/mark-read", requireAuth, async (req, res) => {
   try {
     const { messages } = await import('./src/db/schema');
-    const { db } = await import('./src/db');
-    const { eq, and } = await import('drizzle-orm');
+    
+    
     const userId = (req as any).user.id;
     const { senderId } = req.body;
 
@@ -6105,7 +6312,7 @@ app.get("/api/users/online", requireAuth, (req, res) => {
 app.get("/api/users/directory", requireAuth, async (req, res) => {
   try {
     const { users } = await import('./src/db/schema');
-    const { db } = await import('./src/db');
+    
     const { ne } = await import('drizzle-orm');
     const userId = (req as any).user.id;
     
@@ -6129,7 +6336,7 @@ app.get("/api/users/directory", requireAuth, async (req, res) => {
 app.get("/api/courses/my-contacts", requireAuth, async (req, res) => {
   try {
     const { users, studentCourses, courseAllocations, courses } = await import('./src/db/schema');
-    const { db } = await import('./src/db');
+    
     const { eq, inArray, ne } = await import('drizzle-orm');
     const userId = (req as any).user.id;
     const userRole = (req as any).user.role;
@@ -6233,8 +6440,8 @@ app.get("/api/courses/my-contacts", requireAuth, async (req, res) => {
 app.get("/api/transcripts", requireAuth, async (req, res) => {
   try {
     const { transcriptRequests } = await import('./src/db/schema');
-    const { db } = await import('./src/db');
-    const { eq, desc } = await import('drizzle-orm');
+    
+    
     const userId = (req as any).user.id;
     
     const requests = await db.select()
@@ -6252,7 +6459,7 @@ app.get("/api/transcripts", requireAuth, async (req, res) => {
 app.post("/api/transcripts", requireAuth, async (req, res) => {
   try {
     const { transcriptRequests } = await import('./src/db/schema');
-    const { db } = await import('./src/db');
+    
     const userId = (req as any).user.id;
     
     const [newRequest] = await db.insert(transcriptRequests).values({
@@ -6273,8 +6480,8 @@ app.post("/api/transcripts", requireAuth, async (req, res) => {
 app.get("/api/portfolio", requireAuth, async (req, res) => {
   try {
     const { portfolios, portfolioProjects, portfolioExperiences, portfolioCertificates } = await import('./src/db/schema');
-    const { db } = await import('./src/db');
-    const { eq } = await import('drizzle-orm');
+    
+    
     const userId = (req as any).user.id;
     
     // Get or create portfolio
@@ -6303,8 +6510,8 @@ app.get("/api/portfolio", requireAuth, async (req, res) => {
 app.put("/api/portfolio", requireAuth, async (req, res) => {
   try {
     const { portfolios } = await import('./src/db/schema');
-    const { db } = await import('./src/db');
-    const { eq } = await import('drizzle-orm');
+    
+    
     const userId = (req as any).user.id;
     
     const { bio, skills, githubUrl, linkedinUrl, websiteUrl, isPublic } = req.body;
@@ -6325,8 +6532,8 @@ app.put("/api/portfolio", requireAuth, async (req, res) => {
 app.post("/api/portfolio/projects", requireAuth, async (req, res) => {
   try {
     const { portfolios, portfolioProjects } = await import('./src/db/schema');
-    const { db } = await import('./src/db');
-    const { eq } = await import('drizzle-orm');
+    
+    
     const userId = (req as any).user.id;
     
     const [portfolio] = await db.select().from(portfolios).where(eq(portfolios.userId, userId));
@@ -6346,8 +6553,8 @@ app.post("/api/portfolio/projects", requireAuth, async (req, res) => {
 app.delete("/api/portfolio/projects/:id", requireAuth, async (req, res) => {
   try {
     const { portfolioProjects } = await import('./src/db/schema');
-    const { db } = await import('./src/db');
-    const { eq } = await import('drizzle-orm');
+    
+    
     
     await db.delete(portfolioProjects).where(eq(portfolioProjects.id, parseInt(req.params.id)));
     res.json({ success: true });
@@ -6360,8 +6567,8 @@ app.delete("/api/portfolio/projects/:id", requireAuth, async (req, res) => {
 app.post("/api/portfolio/experiences", requireAuth, async (req, res) => {
   try {
     const { portfolios, portfolioExperiences } = await import('./src/db/schema');
-    const { db } = await import('./src/db');
-    const { eq } = await import('drizzle-orm');
+    
+    
     const userId = (req as any).user.id;
     
     const [portfolio] = await db.select().from(portfolios).where(eq(portfolios.userId, userId));
@@ -6381,8 +6588,8 @@ app.post("/api/portfolio/experiences", requireAuth, async (req, res) => {
 app.delete("/api/portfolio/experiences/:id", requireAuth, async (req, res) => {
   try {
     const { portfolioExperiences } = await import('./src/db/schema');
-    const { db } = await import('./src/db');
-    const { eq } = await import('drizzle-orm');
+    
+    
     
     await db.delete(portfolioExperiences).where(eq(portfolioExperiences.id, parseInt(req.params.id)));
     res.json({ success: true });
@@ -6395,8 +6602,8 @@ app.delete("/api/portfolio/experiences/:id", requireAuth, async (req, res) => {
 app.post("/api/portfolio/certificates", requireAuth, async (req, res) => {
   try {
     const { portfolios, portfolioCertificates } = await import('./src/db/schema');
-    const { db } = await import('./src/db');
-    const { eq } = await import('drizzle-orm');
+    
+    
     const userId = (req as any).user.id;
     
     const [portfolio] = await db.select().from(portfolios).where(eq(portfolios.userId, userId));
@@ -6416,8 +6623,8 @@ app.post("/api/portfolio/certificates", requireAuth, async (req, res) => {
 app.delete("/api/portfolio/certificates/:id", requireAuth, async (req, res) => {
   try {
     const { portfolioCertificates } = await import('./src/db/schema');
-    const { db } = await import('./src/db');
-    const { eq } = await import('drizzle-orm');
+    
+    
     
     await db.delete(portfolioCertificates).where(eq(portfolioCertificates.id, parseInt(req.params.id)));
     res.json({ success: true });
@@ -6430,8 +6637,8 @@ app.delete("/api/portfolio/certificates/:id", requireAuth, async (req, res) => {
 app.get("/api/portfolio/public/:username", async (req, res) => {
   try {
     const { users, portfolios, portfolioProjects, portfolioExperiences, portfolioCertificates } = await import('./src/db/schema');
-    const { db } = await import('./src/db');
-    const { eq } = await import('drizzle-orm');
+    
+    
     
     const [user] = await db.select().from(users).where(eq(users.username, req.params.username));
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -6464,9 +6671,9 @@ app.get("/api/portfolio/public/:username", async (req, res) => {
   // Laboratory Endpoints
   app.get("/api/lab/equipments", requireAuth, async (req, res) => {
     try {
-      const { db } = await import('./src/db');
+      
       const { labEquipments, users } = await import('./src/db/schema');
-      const { eq, desc } = await import('drizzle-orm');
+      
 
       const equipments = await db.select({
         id: labEquipments.id,
@@ -6493,9 +6700,9 @@ app.get("/api/portfolio/public/:username", async (req, res) => {
   app.get("/api/lab/logs", requireAuth, async (req, res) => {
     try {
       const { equipmentId } = req.query;
-      const { db } = await import('./src/db');
+      
       const { labEquipmentLogs, users, labEquipments } = await import('./src/db/schema');
-      const { eq, desc } = await import('drizzle-orm');
+      
       
       let query = db.select({
         id: labEquipmentLogs.id,
@@ -6574,7 +6781,7 @@ app.get("/api/portfolio/public/:username", async (req, res) => {
         return res.status(403).json({ error: "Unauthorized" });
       }
 
-      const { db } = await import('./src/db');
+      
       const { labEquipments } = await import('./src/db/schema');
       const equipments = await db.select().from(labEquipments);
       
@@ -6612,9 +6819,9 @@ ${JSON.stringify(equipments, null, 2)}`;
         return res.status(403).json({ error: "Unauthorized" });
       }
 
-      const { db } = await import('./src/db');
+      
       const { labEquipments, labEquipmentLogs } = await import('./src/db/schema');
-      const { eq } = await import('drizzle-orm');
+      
       const { items } = req.body;
       
       if (!Array.isArray(items)) {
@@ -6691,7 +6898,7 @@ ${JSON.stringify(equipments, null, 2)}`;
         return res.status(403).json({ error: "Unauthorized" });
       }
 
-      const { db } = await import('./src/db');
+      
       const { labEquipments, labEquipmentLogs } = await import('./src/db/schema');
       const { name, description, category, quantity, minThreshold, status } = req.body;
 
@@ -6728,9 +6935,9 @@ ${JSON.stringify(equipments, null, 2)}`;
       }
 
       const { id } = req.params;
-      const { db } = await import('./src/db');
+      
       const { labEquipments, labEquipmentLogs } = await import('./src/db/schema');
-      const { eq } = await import('drizzle-orm');
+      
       const { name, description, category, quantity, minThreshold, status, action, notes } = req.body;
       
       const currentItem = await db.select().from(labEquipments).where(eq(labEquipments.id, parseInt(id)));
@@ -6781,9 +6988,9 @@ ${JSON.stringify(equipments, null, 2)}`;
       }
 
       const { id } = req.params;
-      const { db } = await import('./src/db');
+      
       const { labEquipments, labEquipmentLogs } = await import('./src/db/schema');
-      const { eq } = await import('drizzle-orm');
+      
       
       await db.insert(labEquipmentLogs).values({
         equipmentId: parseInt(id),
@@ -6808,7 +7015,7 @@ ${JSON.stringify(equipments, null, 2)}`;
   app.get("/api/news-events", requireAuth, async (req, res) => {
     try {
       const { universityNews, academicCalendarEvents } = await import('./src/db/schema');
-      const { db } = await import('./src/db');
+      
       const { desc, asc, gte } = await import('drizzle-orm');
 
       // Fetch news
@@ -6825,7 +7032,1453 @@ ${JSON.stringify(equipments, null, 2)}`;
       res.status(500).json({ error: 'Failed to fetch news and events' });
     }
   });
-  app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
+  // ASSIGNMENTS ROUTES
+
+  // Get assignments for a course (student or lecturer)
+  app.get("/api/courses/:courseId/assignments", requireAuth, async (req, res) => {
+    try {
+      
+      const courseId = parseInt(req.params.courseId);
+      const courseAssignments = await db.select().from(schema.assignments).where(eq(schema.assignments.courseId, courseId));
+      res.json(courseAssignments);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to fetch assignments" });
+    }
+  });
+
+  // Create an assignment (lecturer)
+  app.post("/api/courses/:courseId/assignments", requireAuth, requireRole(['Lecturer', 'Administrator']), async (req, res) => {
+    try {
+      const courseId = parseInt(req.params.courseId);
+      const { title, description, dueDate, totalMarks } = req.body;
+      const [newAssignment] = await db.insert(schema.assignments).values({
+        courseId,
+        lecturerId: (req as any).user.id,
+        title,
+        description,
+        dueDate: new Date(dueDate),
+        totalMarks: parseInt(totalMarks),
+      }).returning();
+      res.status(201).json(newAssignment);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to create assignment" });
+    }
+  });
+
+  // Submit an assignment (student)
+  app.post("/api/assignments/:assignmentId/submit", requireAuth, requireRole(['Student']), async (req, res) => {
+    try {
+      const assignmentId = parseInt(req.params.assignmentId);
+      const { fileUrl, fileName } = req.body;
+      const [submission] = await db.insert(schema.assignmentSubmissions).values({
+        assignmentId,
+        studentId: (req as any).user.id,
+        fileUrl,
+        fileName,
+        status: 'submitted'
+      }).returning();
+      res.status(201).json(submission);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to submit assignment" });
+    }
+  });
+
+  // Get submissions for an assignment (lecturer)
+  app.get("/api/assignments/:assignmentId/submissions", requireAuth, requireRole(['Lecturer', 'Administrator']), async (req, res) => {
+    try {
+      
+      const assignmentId = parseInt(req.params.assignmentId);
+      
+      const submissions = await db.select({
+        submission: schema.assignmentSubmissions,
+        student: {
+          id: schema.users.id,
+          name: schema.users.name,
+          username: schema.users.username,
+        }
+      })
+      .from(schema.assignmentSubmissions)
+      .innerJoin(schema.users, eq(schema.assignmentSubmissions.studentId, schema.users.id))
+      .where(eq(schema.assignmentSubmissions.assignmentId, assignmentId));
+      
+      res.json(submissions.map(s => ({ ...s.submission, student: s.student })));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to fetch submissions" });
+    }
+  });
+
+  // Grade a submission (lecturer)
+  app.post("/api/submissions/:submissionId/grade", requireAuth, requireRole(['Lecturer', 'Administrator']), async (req, res) => {
+    try {
+      
+      const submissionId = parseInt(req.params.submissionId);
+      const { marksAwarded, feedback } = req.body;
+      const [updated] = await db.update(schema.assignmentSubmissions)
+        .set({ marksAwarded: parseInt(marksAwarded), feedback, status: 'graded' })
+        .where(eq(schema.assignmentSubmissions.id, submissionId))
+        .returning();
+      res.json(updated);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to grade submission" });
+    }
+  });
+  
+  // Get student's own submissions
+  app.get("/api/student/submissions", requireAuth, requireRole(['Student']), async (req, res) => {
+    try {
+      const submissions = await db.select({
+        submission: schema.assignmentSubmissions,
+        assignment: schema.assignments
+      })
+      .from(schema.assignmentSubmissions)
+      .innerJoin(schema.assignments, eq(schema.assignmentSubmissions.assignmentId, schema.assignments.id))
+      .where(eq(schema.assignmentSubmissions.studentId, (req as any).user.id));
+      
+      res.json(submissions.map(s => ({ ...s.submission, assignment: s.assignment })));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to fetch student submissions" });
+    }
+  });
+
+
+  // ACADEMIC RESULT MODULE: LECTURER
+  
+  // Get course students for result entry
+  app.get("/api/lecturer/courses/:courseId/students-results", requireAuth, requireRole(['Lecturer', 'Administrator']), async (req, res) => {
+    try {
+      
+      
+
+      
+      const courseId = parseInt(req.params.courseId);
+      
+      const studentsInCourse = await db.select({
+        studentId: schema.users.id,
+        name: schema.users.name,
+        matricNo: schema.users.username,
+        resultId: schema.results.id,
+        caScore: schema.results.caScore,
+        examScore: schema.results.examScore,
+        score: schema.results.score,
+        grade: schema.results.grade,
+        status: schema.results.status,
+      })
+      .from(schema.studentCourses)
+      .innerJoin(schema.users, eq(schema.studentCourses.studentId, schema.users.id))
+      .leftJoin(schema.results, and(
+        eq(schema.results.studentId, schema.users.id),
+        eq(schema.results.courseId, courseId)
+      ))
+      .where(and(
+        eq(schema.studentCourses.courseId, courseId),
+        eq(schema.studentCourses.status, 'registered')
+      ));
+
+      res.json(studentsInCourse);
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to load students" });
+    }
+  });
+
+
+  
+  app.get("/api/settings/academic_ca_rules", requireAuth, async (req, res) => {
+    res.json({
+      caMax: 30,
+      examMax: 70,
+      components: [
+        { id: '1', name: 'Assignment', maxScore: 10 },
+        { id: '2', name: 'Test', maxScore: 10 },
+        { id: '3', name: 'Quiz', maxScore: 10 }
+      ]
+    });
+  });
+
+  app.get("/api/grading-rules", requireAuth, async (req, res) => {
+    try {
+      
+      
+
+      const rules = await db.select().from(schema.gradingRules).orderBy(schema.gradingRules.minScore);
+      res.json(rules);
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to load grading rules" });
+    }
+  });
+
+  // Save/Submit Course Results
+  app.post("/api/lecturer/courses/:courseId/results", requireAuth, requireRole(['Lecturer', 'Administrator']), async (req, res) => {
+    try {
+      
+      
+
+      
+      const { ResultCalculationService } = await import('./src/server/services/ResultCalculationService');
+      const courseId = parseInt(req.params.courseId);
+      const { students, isSubmit } = req.body; // students array with { studentId, caScore, examScore }, isSubmit boolean
+      
+      // Get course credit units for QP calculation
+      const [course] = await db.select().from(schema.courses).where(eq(schema.courses.id, courseId));
+      if (!course) return res.status(404).json({ error: "Course not found" });
+
+      const actorId = (req as any).user.id;
+      const actorRole = (req as any).user.role;
+
+      if (actorRole !== 'Administrator') {
+          const [allocation] = await db.select()
+              .from(schema.courseAllocations)
+              .where(
+                  and(
+                      eq(schema.courseAllocations.courseId, courseId),
+                      eq(schema.courseAllocations.lecturerId, actorId)
+                  )
+              );
+          if (!allocation) {
+              return res.status(403).json({ error: "Unauthorized: You are not assigned to this course." });
+          }
+      }
+
+      const targetStatus = isSubmit ? 'submitted' : 'draft';
+
+      let processedCount = 0;
+
+      for (const student of students) {
+        // Find existing result to check status
+        const [existing] = await db.select().from(schema.results).where(and(
+          eq(schema.results.studentId, student.studentId),
+          eq(schema.results.courseId, courseId)
+        ));
+
+        // Skip if locked or approved
+        if (existing && ['submitted', 'hod_approved', 'registrar_approved', 'published', 'locked'].includes(existing.status)) {
+          continue;
+        }
+
+        const caScore = student.caScore === '' || student.caScore === null ? null : Number(student.caScore);
+        const caBreakdown = student.caBreakdown || existing?.caBreakdown || null;
+        const examScore = student.examScore === '' || student.examScore === null ? null : Number(student.examScore);
+        
+        const totalScore = ResultCalculationService.calculateTotalScore(caScore, examScore);
+        const { grade, gradePoint, isPass } = await ResultCalculationService.calculateGradeFromDB(totalScore);
+        const qualityPoint = ResultCalculationService.calculateQualityPoint(course.credits, gradePoint);
+
+        const resultData = {
+          studentId: student.studentId,
+          courseId,
+          academicSession: '2025/2026', // Ideally from active session setting
+          semester: course.semester || '1st',
+          caScore,
+          caBreakdown,
+          examScore,
+          score: totalScore,
+          grade,
+          gradePoint,
+          qualityPoint,
+          status: targetStatus as any,
+          
+        };
+
+        if (existing) {
+          // Update
+          await db.update(schema.results)
+            .set(resultData)
+            .where(eq(schema.results.id, existing.id));
+
+          // Log Audit
+          await db.insert(schema.resultAuditLogs).values({
+            userId: actorId,
+            role: (req as any).user.role,
+            studentId: student.studentId,
+            courseId,
+            action: isSubmit ? 'Result Submitted' : 'Result Edited',
+            oldCa: existing.caScore,
+            newCa: caScore,
+            oldExam: existing.examScore,
+            newExam: examScore,
+            oldGrade: existing.grade,
+            newGrade: grade,
+            ipAddress: req.ip || req.headers['x-forwarded-for']?.toString()
+          });
+        } else {
+          // Insert
+          await db.insert(schema.results).values(resultData);
+          
+          await db.insert(schema.resultAuditLogs).values({
+            userId: actorId,
+            role: (req as any).user.role,
+            studentId: student.studentId,
+            courseId,
+            action: isSubmit ? 'Result Submitted' : 'Result Created',
+            newCa: caScore,
+            newExam: examScore,
+            newGrade: grade,
+            ipAddress: req.ip || req.headers['x-forwarded-for']?.toString()
+          });
+        }
+        processedCount++;
+      }
+
+      res.json({ message: `Successfully ${isSubmit ? 'submitted' : 'saved'} ${processedCount} results.` });
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to process results" });
+    }
+  });
+
+
+  // ACADEMIC RESULT MODULE: HOD APPROVAL
+  app.get("/api/hod/results/pending", requireAuth, requireRole(['HOD', 'Administrator']), async (req, res) => {
+    try {
+      
+      
+
+      
+      
+      let departmentCondition = undefined;
+      const actorRole = (req as any).user.role;
+      const actorDepartment = (req as any).user.department;
+      
+      if (actorRole !== 'Administrator' && actorDepartment) {
+          const [dept] = await db.select().from(schema.departments).where(eq(schema.departments.name, actorDepartment));
+          if (dept) {
+              departmentCondition = eq(schema.courses.departmentId, dept.id);
+          } else {
+              // If HOD has a department string but it doesn't match any department in DB, return empty
+              return res.json([]);
+          }
+      }
+
+      const pendingCourses = await db.select({
+        courseId: schema.courses.id,
+        courseCode: schema.courses.code,
+        courseTitle: schema.courses.title,
+        credits: schema.courses.credits,
+        semester: schema.courses.semester,
+        submittedCount: sql<number>`count(*)`.mapWith(Number),
+      })
+      .from(schema.results)
+      .innerJoin(schema.courses, eq(schema.results.courseId, schema.courses.id))
+      .where(
+          and(
+              eq(schema.results.status, 'submitted'),
+              departmentCondition
+          )
+      )
+      .groupBy(schema.courses.id, schema.courses.code, schema.courses.title, schema.courses.credits, schema.courses.semester);
+
+      res.json(pendingCourses);
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to load pending results" });
+    }
+  });
+
+  app.get("/api/hod/results/course/:courseId", requireAuth, requireRole(['HOD', 'Administrator', 'Registrar']), async (req, res) => {
+    try {
+      
+      
+
+      
+      const courseId = parseInt(req.params.courseId);
+      const statusFilter = req.query.status as string; // 'submitted' or 'hod_approved'
+        
+      const actorRole = (req as any).user.role;
+      const actorDepartment = (req as any).user.department;
+
+      if (actorRole === 'HOD') {
+          const [course] = await db.select({ departmentName: schema.departments.name })
+              .from(schema.courses)
+              .leftJoin(schema.departments, eq(schema.courses.departmentId, schema.departments.id))
+              .where(eq(schema.courses.id, courseId));
+              
+          if (!course || course.departmentName !== actorDepartment) {
+              return res.status(403).json({ error: "Unauthorized: Course not in your department." });
+          }
+      }
+
+      const results = await db.select({
+        resultId: schema.results.id,
+        studentId: schema.users.id,
+        matricNo: schema.users.username,
+        name: schema.users.name,
+        caScore: schema.results.caScore,
+        examScore: schema.results.examScore,
+        score: schema.results.score,
+        grade: schema.results.grade,
+        status: schema.results.status,
+      })
+      .from(schema.results)
+      .innerJoin(schema.users, eq(schema.results.studentId, schema.users.id))
+      .where(and(
+        eq(schema.results.courseId, courseId),
+        statusFilter ? eq(schema.results.status, statusFilter as any) : undefined
+      ));
+
+      res.json(results);
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to load course results" });
+    }
+  });
+
+  app.post("/api/hod/results/approve", requireAuth, requireRole(['HOD', 'Administrator']), async (req, res) => {
+    try {
+      
+      
+
+      
+      const { resultIds, action, reason } = req.body; // action: 'approve' or 'return'
+      const actorId = (req as any).user.id;
+      const actorRole = (req as any).user.role;
+      const actorDepartment = (req as any).user.department;
+
+      // HOD Authorization Check
+      if (actorRole !== 'Administrator') {
+          // Check if all results belong to the HOD's department
+          const resultsToCheck = await db.select({
+              courseDepartmentId: schema.courses.departmentId,
+              departmentName: schema.departments.name
+          }).from(schema.results)
+          .innerJoin(schema.courses, eq(schema.results.courseId, schema.courses.id))
+          .leftJoin(schema.departments, eq(schema.courses.departmentId, schema.departments.id))
+          .where(inArray(schema.results.id, resultIds));
+
+          for (const resultRow of resultsToCheck) {
+              if (resultRow.departmentName !== actorDepartment) {
+                  return res.status(403).json({ error: "Unauthorized: You can only review results for your department." });
+              }
+          }
+      }
+
+      const newStatus = action === 'approve' ? 'hod_approved' : 'returned';
+      const logAction = action === 'approve' ? 'Result Approved by HOD' : 'Result Returned by HOD';
+
+      await db.update(schema.results)
+        .set({ status: newStatus as any, returnReason: reason, approvedByHodId: actorId })
+        .where(inArray(schema.results.id, resultIds));
+
+      // Audit logs
+      const affectedResults = await db.select({
+        id: schema.results.id,
+        studentId: schema.results.studentId,
+        courseId: schema.results.courseId
+      }).from(schema.results).where(inArray(schema.results.id, resultIds));
+
+      const logs = affectedResults.map((r: any) => ({
+        userId: actorId,
+        role: (req as any).user.role,
+        studentId: r.studentId,
+        courseId: r.courseId,
+        action: logAction,
+        reason: reason,
+        ipAddress: req.ip || req.headers['x-forwarded-for']?.toString()
+      }));
+      if (logs.length > 0) await db.insert(schema.resultAuditLogs).values(logs);
+
+      res.json({ message: `Results successfully ${newStatus}` });
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to process results" });
+    }
+  });
+
+  // ACADEMIC RESULT MODULE: REGISTRAR PUBLICATION
+  app.get("/api/registrar/results/pending", requireAuth, requireRole(['Registrar', 'Administrator']), async (req, res) => {
+    try {
+      
+      
+
+      const { eq, sql, inArray } = await import('drizzle-orm');
+      const pendingCourses = await db.select({
+        courseId: schema.courses.id,
+        courseCode: schema.courses.code,
+        courseTitle: schema.courses.title,
+        credits: schema.courses.credits,
+        semester: schema.courses.semester,
+        status: schema.results.status,
+        approvedCount: sql<number>`count(*)`.mapWith(Number),
+      })
+      .from(schema.results)
+      .innerJoin(schema.courses, eq(schema.results.courseId, schema.courses.id))
+      .where(inArray(schema.results.status, ['hod_approved', 'registrar_approved', 'published']))
+      .groupBy(schema.courses.id, schema.courses.code, schema.courses.title, schema.courses.credits, schema.courses.semester, schema.results.status);
+
+      res.json(pendingCourses);
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to load pending publications" });
+    }
+  });
+
+  app.post("/api/registrar/results/publish", requireAuth, requireRole(['Registrar', 'Administrator']), async (req, res) => {
+    try {
+      
+      
+
+      
+      const { ResultCalculationService } = await import('./src/server/services/ResultCalculationService');
+      const { resultIds, courseId, action, reason } = req.body;
+      const actorId = (req as any).user.id;
+
+      const affectedResults = await db.select({
+        id: schema.results.id,
+        studentId: schema.results.studentId,
+        courseId: schema.results.courseId
+      }).from(schema.results).where(inArray(schema.results.id, resultIds));
+
+      const logAction = async (actionText: string) => {
+        const logs = affectedResults.map((r: any) => ({
+          userId: actorId,
+          role: (req as any).user.role,
+          studentId: r.studentId,
+          courseId: r.courseId,
+          action: actionText,
+          reason: reason,
+          ipAddress: req.ip || req.headers['x-forwarded-for']?.toString()
+        }));
+        if (logs.length > 0) await db.insert(schema.resultAuditLogs).values(logs);
+      };
+
+      if (action === 'return') {
+        await db.update(schema.results)
+          .set({ status: 'returned' as any, returnReason: reason })
+          .where(inArray(schema.results.id, resultIds));
+        await logAction('Result Returned');
+        return res.json({ message: 'Results returned to Lecturer' });
+      }
+      
+      if (action === 'approve') {
+        await db.update(schema.results)
+          .set({ status: 'registrar_approved' as any, approvedByRegistrarId: actorId })
+          .where(inArray(schema.results.id, resultIds));
+        await logAction('Result Approved');
+        return res.json({ message: 'Results approved successfully.' });
+      }
+
+      if (action === 'lock') {
+        await db.update(schema.results)
+          .set({ status: 'locked' as any })
+          .where(inArray(schema.results.id, resultIds));
+        await logAction('Result Locked');
+        return res.json({ message: 'Results locked successfully.' });
+      }
+
+      if (action === 'revoke') {
+        await db.update(schema.results)
+          .set({ status: 'registrar_approved' as any }) // Revert to approved, unpublished state
+          .where(inArray(schema.results.id, resultIds));
+        await logAction('Result Revoked');
+        
+        const publishedResults = await db.select({
+            studentId: schema.results.studentId,
+        }).from(schema.results).where(inArray(schema.results.id, resultIds));
+        const uniqueStudents = Array.from(new Set(publishedResults.map(r => r.studentId)));
+        for (const studentId of uniqueStudents) {
+            await ResultCalculationService.updateStudentGPAAndCGPA(studentId);
+        }
+        
+        return res.json({ message: 'Results revoked successfully' });
+      }
+
+      if (action !== 'publish') {
+        return res.status(400).json({ error: "Invalid action" });
+      }
+
+      // Publish
+      await db.update(schema.results)
+        .set({ status: 'published' as any, approvedByRegistrarId: actorId })
+        .where(inArray(schema.results.id, resultIds));
+      await logAction('Result Published');
+
+      // Get affected students to update their GPA/CGPA and notify them
+      const publishedResults = await db.select({
+        studentId: schema.results.studentId,
+        courseCode: schema.courses.code,
+        courseTitle: schema.courses.title,
+        academicSession: schema.results.academicSession,
+        semester: schema.results.semester
+      }).from(schema.results)
+        .innerJoin(schema.courses, eq(schema.results.courseId, schema.courses.id))
+        .where(inArray(schema.results.id, resultIds));
+
+      const uniqueStudents = Array.from(new Set(publishedResults.map(r => r.studentId)));
+
+      for (const studentId of uniqueStudents) {
+        await ResultCalculationService.updateStudentGPAAndCGPA(studentId);
+        
+        // Notify student for each published result
+        const studentResults = publishedResults.filter(r => r.studentId === studentId);
+        for (const result of studentResults) {
+          const semesterName = result.semester === '1st' || result.semester === '1' ? 'First Semester' : 
+                               result.semester === '2nd' || result.semester === '2' ? 'Second Semester' : 
+                               result.semester;
+                               
+          await db.insert(schema.notifications).values({
+            userId: studentId,
+            title: "Result Published",
+            message: `Your result for ${result.courseCode} - ${result.courseTitle}\nfor ${result.academicSession} ${semesterName} has been published.\n\nLogin to your student portal to view your result.`,
+            type: "academic",
+          });
+        }
+      }
+
+      res.json({ message: `Successfully published ${resultIds.length} results. GPA and CGPA updated automatically.` });
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to publish results" });
+    }
+  });
+
+
+  // ACADEMIC RESULT MODULE: STUDENT PORTAL
+  app.get("/api/student/academic-profile", requireAuth, requireRole(['Student']), async (req, res) => {
+    try {
+      
+      const studentId = (req as any).user.id;
+      
+      const [cgpaRecord] = await db.select().from(schema.cgpaRecords).where(eq(schema.cgpaRecords.studentId, studentId));
+      
+      const [user] = await db.select().from(schema.users).where(eq(schema.users.id, studentId));
+
+      const publishedResults = await db.select().from(schema.results).where(and(eq(schema.results.studentId, studentId), eq(schema.results.status, 'published')));
+      
+      const passedCourses = publishedResults.filter(r => r.grade !== 'F').length;
+      const failedCourses = publishedResults.filter(r => r.grade === 'F').length;
+
+      res.json({
+        cgpa: cgpaRecord ? cgpaRecord.cgpa : 0,
+        totalCreditUnits: cgpaRecord ? cgpaRecord.totalCreditUnits : 0,
+        totalQualityPoints: cgpaRecord ? cgpaRecord.totalQualityPoints : 0,
+        academicStanding: cgpaRecord ? cgpaRecord.academicStanding : 'No Standing Yet',
+        degreeClassification: cgpaRecord ? (await import('./src/server/services/ResultCalculationService')).ResultCalculationService.calculateDegreeClassification(cgpaRecord.cgpa) : 'N/A',
+        passedCourses,
+        failedCourses,
+        user: {
+          name: user.name,
+          matricNo: user.username,
+          department: user.department || 'Computer Science',
+          faculty: user.faculty || 'Science'
+        }
+      });
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to load academic profile" });
+    }
+  });
+
+  app.get("/api/student/transcript", requireAuth, requireRole(['Student', 'Registrar', 'Administrator']), async (req, res) => {
+    try {
+      
+      const studentId = (req as any).user.role === 'Student' ? (req as any).user.id : parseInt(req.query.studentId as string);
+      
+      if (!studentId) return res.status(400).json({ error: "Student ID required" });
+
+      const publishedResults = await db.select({
+        id: schema.results.id,
+        courseCode: schema.courses.code,
+        courseTitle: schema.courses.title,
+        credits: schema.courses.credits,
+        caScore: schema.results.caScore,
+        examScore: schema.results.examScore,
+        score: schema.results.score,
+        grade: schema.results.grade,
+        gradePoint: schema.results.gradePoint,
+        qualityPoint: schema.results.qualityPoint,
+        academicSession: schema.results.academicSession,
+        semester: schema.results.semester
+      })
+      .from(schema.results)
+      .innerJoin(schema.courses, eq(schema.results.courseId, schema.courses.id))
+      .where(and(
+        eq(schema.results.studentId, studentId),
+        eq(schema.results.status, 'published')
+      ));
+
+      const semesterRecords = await db.select().from(schema.semesterGpaRecords).where(eq(schema.semesterGpaRecords.studentId, studentId));
+      const [cgpaRecord] = await db.select().from(schema.cgpaRecords).where(eq(schema.cgpaRecords.studentId, studentId));
+
+      res.json({
+        results: publishedResults,
+        semesters: semesterRecords,
+        cumulative: cgpaRecord
+      });
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to load transcript data" });
+    }
+  });
+
+  
+  
+  app.get("/api/admin/academic-settings", requireAuth, requireRole(['Administrator', 'Registrar', 'Admin']), async (req, res) => {
+    try {
+        const gradingRulesData = await db.select().from(schema.gradingRules);
+        const settings = await db.select().from(schema.systemSettings);
+        
+        const settingsMap = settings.reduce((acc, curr) => {
+            acc[curr.key] = curr.value;
+            return acc;
+        }, {} as Record<string, string>);
+
+        res.json({
+            gradingRules: gradingRulesData,
+            caMax: settingsMap['ca_max'] || '30',
+            examMax: settingsMap['exam_max'] || '70',
+            degreeClassification: settingsMap['degree_classification_rules'] ? JSON.parse(settingsMap['degree_classification_rules']) : [],
+            academicStanding: settingsMap['academic_standing_rules'] ? JSON.parse(settingsMap['academic_standing_rules']) : [],
+            repeatCoursePolicy: settingsMap['repeat_course_policy'] || 'Best Attempt Counts',
+            gpaDecimalPlaces: settingsMap['gpa_decimal_places'] || '2',
+            cgpaDecimalPlaces: settingsMap['cgpa_decimal_places'] || '2',
+            resultApprovalWorkflow: settingsMap['result_approval_workflow'] || 'HOD -> Registrar',
+            transcriptSettings: settingsMap['transcript_settings'] ? JSON.parse(settingsMap['transcript_settings']) : { registrarName: '', registrarSignature: '', customNotes: '' },
+        });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Failed to get academic settings' });
+    }
+  });
+
+  app.put("/api/admin/academic-settings", requireAuth, requireRole(['Administrator', 'Registrar', 'Admin']), async (req, res) => {
+    try {
+        const { 
+            gradingRules, caMax, examMax, degreeClassification, academicStanding, 
+            repeatCoursePolicy, gpaDecimalPlaces, cgpaDecimalPlaces, 
+            resultApprovalWorkflow, transcriptSettings 
+        } = req.body;
+        
+        // 1. Update Grading Rules
+        if (gradingRules && Array.isArray(gradingRules)) {
+            await db.delete(schema.gradingRules);
+            if (gradingRules.length > 0) {
+                // Ensure no IDs are passed to insert
+                const toInsert = gradingRules.map(r => ({
+                    minScore: Number(r.minScore),
+                    maxScore: Number(r.maxScore),
+                    grade: String(r.grade),
+                    gradePoint: Number(r.gradePoint),
+                    description: String(r.description),
+                    isPass: Boolean(r.isPass)
+                }));
+                await db.insert(schema.gradingRules).values(toInsert);
+            }
+        }
+        
+        // 2. Update System Settings
+        const updateSetting = async (key: string, value: string) => {
+            const [existing] = await db.select().from(schema.systemSettings).where(eq(schema.systemSettings.key, key));
+            if (existing) {
+                await db.update(schema.systemSettings).set({ value }).where(eq(schema.systemSettings.key, key));
+            } else {
+                await db.insert(schema.systemSettings).values({ key, value });
+            }
+        };
+
+        if (caMax !== undefined) await updateSetting('ca_max', caMax.toString());
+        if (examMax !== undefined) await updateSetting('exam_max', examMax.toString());
+        if (degreeClassification) await updateSetting('degree_classification_rules', JSON.stringify(degreeClassification));
+        if (academicStanding) await updateSetting('academic_standing_rules', JSON.stringify(academicStanding));
+        if (repeatCoursePolicy) await updateSetting('repeat_course_policy', repeatCoursePolicy);
+        if (gpaDecimalPlaces !== undefined) await updateSetting('gpa_decimal_places', gpaDecimalPlaces.toString());
+        if (cgpaDecimalPlaces !== undefined) await updateSetting('cgpa_decimal_places', cgpaDecimalPlaces.toString());
+        if (resultApprovalWorkflow) await updateSetting('result_approval_workflow', resultApprovalWorkflow);
+        if (transcriptSettings) await updateSetting('transcript_settings', JSON.stringify(transcriptSettings));
+
+        // Let's trigger a background recalculation of CGPA if standing or policy changed
+        if (academicStanding || repeatCoursePolicy) {
+             const studentsWithResults = await db.select({ studentId: schema.results.studentId }).from(schema.results).where(eq(schema.results.status, 'published')).groupBy(schema.results.studentId);
+             const { ResultCalculationService } = await import('./src/server/services/ResultCalculationService');
+             for (const record of studentsWithResults) {
+                 await ResultCalculationService.updateStudentGPAAndCGPA(record.studentId);
+             }
+        }
+
+        res.json({ message: 'Academic settings updated successfully' });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Failed to update academic settings' });
+    }
+  });
+
+
+  app.get("/api/admin/settings/academic_standing", requireAuth, requireRole(['Administrator', 'Registrar', 'Admin']), async (req, res) => {
+    try {
+        const [setting] = await db.select().from(schema.systemSettings).where(eq(schema.systemSettings.key, 'academic_standing_rules'));
+        res.json({ rules: setting ? JSON.parse(setting.value) : [] });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Failed to get standing rules' });
+    }
+  });
+
+  app.put("/api/admin/settings/academic_standing", requireAuth, requireRole(['Administrator', 'Registrar', 'Admin']), async (req, res) => {
+    try {
+        const { rules } = req.body; // rules should be an array of { minCgpa: number, status: string }
+        const [existing] = await db.select().from(schema.systemSettings).where(eq(schema.systemSettings.key, 'academic_standing_rules'));
+        if (existing) {
+            await db.update(schema.systemSettings).set({ value: JSON.stringify(rules) }).where(eq(schema.systemSettings.key, 'academic_standing_rules'));
+        } else {
+            await db.insert(schema.systemSettings).values({ key: 'academic_standing_rules', value: JSON.stringify(rules) });
+        }
+        
+        // Recalculate CGPA for all students that have published results to reflect the new policy
+        const studentsWithResults = await db.select({ studentId: schema.results.studentId }).from(schema.results).where(eq(schema.results.status, 'published')).groupBy(schema.results.studentId);
+        const { ResultCalculationService } = await import('./src/server/services/ResultCalculationService');
+        for (const record of studentsWithResults) {
+            await ResultCalculationService.updateStudentGPAAndCGPA(record.studentId);
+        }
+
+        res.json({ message: 'Rules updated' });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Failed to update standing rules' });
+    }
+  });
+
+  app.post("/api/admin/transcripts/generate", requireAuth, requireRole(['Administrator', 'Registrar', 'Admin']), async (req, res) => {
+    try {
+        const { matricNumber } = req.body;
+        if (!matricNumber) {
+            return res.status(400).json({ error: 'Matric number is required' });
+        }
+
+        const [student] = await db.select().from(schema.users).where(eq(schema.users.username, String(matricNumber)));
+        if (!student) {
+            return res.status(404).json({ error: 'Student not found' });
+        }
+
+        
+        const verificationCode = crypto.randomBytes(16).toString('hex');
+        
+        const [transcriptRecord] = await db.insert(schema.transcripts).values({
+            studentId: student.id,
+            generatedById: (req as any).user.id,
+            verificationCode: verificationCode,
+            status: 'valid'
+        }).returning();
+
+        const transcriptNumber = `TR-${new Date().getFullYear()}-${String(transcriptRecord.id).padStart(5, '0')}`;
+
+        const [institutionNameSettings] = await db.select().from(schema.systemSettings).where(eq(schema.systemSettings.key, 'institution_name'));
+        const [institutionLogoSettings] = await db.select().from(schema.systemSettings).where(eq(schema.systemSettings.key, 'institution_logo'));
+
+        // Fetch all results for the student
+        const studentResults = await db.select({
+            id: schema.results.id,
+            academicSession: schema.results.academicSession,
+            semester: schema.results.semester,
+            caScore: schema.results.caScore,
+            examScore: schema.results.examScore,
+            score: schema.results.score,
+            grade: schema.results.grade,
+            gradePoint: schema.results.gradePoint,
+            qualityPoint: schema.results.qualityPoint,
+            courseCode: schema.courses.code,
+            courseTitle: schema.courses.title,
+            courseCredits: schema.courses.credits,
+            courseType: schema.courses.type
+        })
+        .from(schema.results)
+        .innerJoin(schema.courses, eq(schema.results.courseId, schema.courses.id))
+        .where(
+            and(
+                eq(schema.results.studentId, student.id),
+                eq(schema.results.status, 'published')
+            )
+        );
+
+        // Fetch semester GPAs
+        const semesterGpas = await db.select().from(schema.semesterGpaRecords).where(eq(schema.semesterGpaRecords.studentId, student.id));
+        
+        // Group results by session and semester
+        const groupedResults = {};
+        studentResults.forEach(result => {
+            const key = `${result.academicSession} - ${result.semester}`;
+            if (!groupedResults[key]) {
+                const gpaRecord = semesterGpas.find(g => g.academicSession === result.academicSession && g.semester === result.semester);
+                groupedResults[key] = {
+                    session: result.academicSession,
+                    semester: result.semester,
+                    gpa: gpaRecord ? gpaRecord.gpa : 0,
+                    totalCreditUnits: gpaRecord ? gpaRecord.totalCreditUnits : 0,
+                    totalEarnedCredits: gpaRecord ? gpaRecord.totalEarnedCredits : 0,
+                    courses: []
+                };
+            }
+            groupedResults[key].courses.push({
+                code: result.courseCode,
+                title: result.courseTitle,
+                credits: result.courseCredits,
+                score: result.score,
+                grade: result.grade,
+                gradePoint: result.gradePoint,
+                qualityPoint: result.qualityPoint,
+                type: result.courseType
+            });
+        });
+
+        const sessionsArray = Object.values(groupedResults).sort((a: any, b: any) => {
+            if (a.session === b.session) return a.semester.localeCompare(b.semester);
+            return a.session.localeCompare(b.session);
+        });
+
+        const [cgpaRecord] = await db.select().from(schema.cgpaRecords).where(eq(schema.cgpaRecords.studentId, student.id));
+
+        const responsePayload = {
+            metadata: {
+                transcriptNumber,
+                verificationCode,
+                generatedAt: transcriptRecord.createdAt
+            },
+            institution: {
+                name: institutionNameSettings?.value || '',
+                logo: institutionLogoSettings?.value || ''
+            },
+            student: {
+                name: student.name,
+                matricNumber: student.username,
+                programme: student.department || '',
+                department: student.department || '',
+                faculty: student.faculty || ''
+            },
+            sessions: sessionsArray,
+            summary: {
+                totalEarnedCredits: cgpaRecord ? cgpaRecord.totalEarnedCredits : 0,
+                totalCreditUnits: cgpaRecord ? cgpaRecord.totalCreditUnits : 0,
+                totalQualityPoints: cgpaRecord ? cgpaRecord.totalQualityPoints : 0,
+                cgpa: cgpaRecord ? cgpaRecord.cgpa : 0,
+                classification: ''
+            }
+        };
+        
+        if (cgpaRecord) {
+            const { ResultCalculationService } = await import('./src/server/services/ResultCalculationService');
+            const settingsRows = await db.select().from(schema.systemSettings).where(eq(schema.systemSettings.key, 'degree_classification_rules'));
+            let rules = [];
+            if (settingsRows.length > 0) rules = JSON.parse(settingsRows[0].value);
+            responsePayload.summary.classification = ResultCalculationService.calculateDegreeClassification(cgpaRecord.cgpa, rules);
+        }
+        
+        res.json(responsePayload);
+
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Failed to generate transcript' });
+    }
+});
+
+
+  app.post("/api/student/transcripts/generate", requireAuth, requireRole(['Student']), async (req, res) => {
+    try {
+        const studentId = (req as any).user.id;
+        
+        const verificationCode = crypto.randomBytes(16).toString('hex');
+        
+        const [transcriptRecord] = await db.insert(schema.transcripts).values({
+            studentId: studentId,
+            generatedById: studentId,
+            verificationCode: verificationCode,
+            status: 'valid'
+        }).returning();
+
+        res.json({ verificationCode });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Failed to register transcript for verification' });
+    }
+  });
+
+app.get("/api/public/verify-transcript/:code", async (req, res) => {
+    try {
+        const { code } = req.params;
+        const [transcriptRecord] = await db.select().from(schema.transcripts).where(eq(schema.transcripts.verificationCode, code));
+        
+        if (!transcriptRecord) {
+            return res.status(404).json({ error: 'Invalid or missing verification code' });
+        }
+
+        if (transcriptRecord.status !== 'valid') {
+            return res.status(400).json({ error: 'This transcript has been revoked' });
+        }
+
+        const [student] = await db.select().from(schema.users).where(eq(schema.users.id, transcriptRecord.studentId));
+        if (!student) {
+            return res.status(404).json({ error: 'Student record not found' });
+        }
+
+        const transcriptNumber = `TR-${new Date(transcriptRecord.createdAt).getFullYear()}-${String(transcriptRecord.id).padStart(5, '0')}`;
+
+        const [cgpaRecord] = await db.select().from(schema.cgpaRecords).where(eq(schema.cgpaRecords.studentId, student.id));
+        let classification = '';
+        if (cgpaRecord) {
+            const { ResultCalculationService } = await import('./src/server/services/ResultCalculationService');
+            const settingsRows = await db.select().from(schema.systemSettings).where(eq(schema.systemSettings.key, 'degree_classification_rules'));
+            let rules = [];
+            if (settingsRows.length > 0) rules = JSON.parse(settingsRows[0].value);
+            classification = ResultCalculationService.calculateDegreeClassification(cgpaRecord.cgpa, rules);
+        }
+
+        res.json({
+            valid: true,
+            transcriptNumber,
+            generatedAt: transcriptRecord.createdAt,
+            student: {
+                name: student.name,
+                matricNumber: student.username,
+                programme: student.department || '',
+            },
+            summary: {
+                cgpa: cgpaRecord ? cgpaRecord.cgpa : 0,
+                classification: classification
+            }
+        });
+
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Verification failed' });
+    }
+});
+
+app.get("/api/admin/transcripts/student", requireAuth, requireRole(['Administrator', 'Registrar', 'Admin']), async (req, res) => {
+    try {
+        const { matricNumber } = req.query;
+        if (!matricNumber) {
+            return res.status(400).json({ error: 'Matric number is required' });
+        }
+
+        const [student] = await db.select().from(schema.users).where(eq(schema.users.username, String(matricNumber)));
+        if (!student) {
+            return res.status(404).json({ error: 'Student not found' });
+        }
+
+        const [institutionNameSettings] = await db.select().from(schema.systemSettings).where(eq(schema.systemSettings.key, 'institution_name'));
+        const [institutionLogoSettings] = await db.select().from(schema.systemSettings).where(eq(schema.systemSettings.key, 'institution_logo'));
+
+        // Fetch all results for the student
+        const studentResults = await db.select({
+            id: schema.results.id,
+            academicSession: schema.results.academicSession,
+            semester: schema.results.semester,
+            caScore: schema.results.caScore,
+            examScore: schema.results.examScore,
+            score: schema.results.score,
+            grade: schema.results.grade,
+            gradePoint: schema.results.gradePoint,
+            qualityPoint: schema.results.qualityPoint,
+            courseCode: schema.courses.code,
+            courseTitle: schema.courses.title,
+            courseCredits: schema.courses.credits,
+            courseType: schema.courses.type
+        })
+        .from(schema.results)
+        .innerJoin(schema.courses, eq(schema.results.courseId, schema.courses.id))
+        .where(
+            and(
+                eq(schema.results.studentId, student.id),
+                eq(schema.results.status, 'published')
+            )
+        );
+
+        // Fetch semester GPAs
+        const semesterGpas = await db.select().from(schema.semesterGpaRecords).where(eq(schema.semesterGpaRecords.studentId, student.id));
+        
+        // Group results by session and semester
+        const groupedResults = {};
+        studentResults.forEach(result => {
+            const key = `${result.academicSession} - ${result.semester}`;
+            if (!groupedResults[key]) {
+                const gpaRecord = semesterGpas.find(g => g.academicSession === result.academicSession && g.semester === result.semester);
+                groupedResults[key] = {
+                    session: result.academicSession,
+                    semester: result.semester,
+                    gpa: gpaRecord ? gpaRecord.gpa : 0,
+                    totalCreditUnits: gpaRecord ? gpaRecord.totalCreditUnits : 0,
+                    totalEarnedCredits: gpaRecord ? gpaRecord.totalEarnedCredits : 0,
+                    courses: []
+                };
+            }
+            groupedResults[key].courses.push({
+                code: result.courseCode,
+                title: result.courseTitle,
+                credits: result.courseCredits,
+                score: result.score,
+                grade: result.grade,
+                gradePoint: result.gradePoint,
+                qualityPoint: result.qualityPoint,
+                type: result.courseType
+            });
+        });
+
+        // Convert grouped object to array and sort chronologically (simple string sort might work for sessions like "2024/2025")
+        const sessionsArray = Object.values(groupedResults).sort((a: any, b: any) => {
+            if (a.session === b.session) return a.semester.localeCompare(b.semester);
+            return a.session.localeCompare(b.session);
+        });
+
+        const [cgpaRecord] = await db.select().from(schema.cgpaRecords).where(eq(schema.cgpaRecords.studentId, student.id));
+
+        const responsePayload = {
+            institution: {
+                name: institutionNameSettings?.value || '',
+                logo: institutionLogoSettings?.value || ''
+            },
+            student: {
+                name: student.name,
+                matricNumber: student.username,
+                programme: student.department || '', // Assuming programme is tied to department for now
+                department: student.department || '',
+                faculty: student.faculty || ''
+            },
+            sessions: sessionsArray,
+            summary: {
+                totalEarnedCredits: cgpaRecord ? cgpaRecord.totalEarnedCredits : 0,
+                totalCreditUnits: cgpaRecord ? cgpaRecord.totalCreditUnits : 0,
+                totalQualityPoints: cgpaRecord ? cgpaRecord.totalQualityPoints : 0,
+                cgpa: cgpaRecord ? cgpaRecord.cgpa : 0,
+                classification: ''
+            }
+        };
+        
+        if (cgpaRecord) {
+            const { ResultCalculationService } = await import('./src/server/services/ResultCalculationService');
+            const settingsRows = await db.select().from(schema.systemSettings).where(eq(schema.systemSettings.key, 'degree_classification_rules'));
+            let rules = [];
+            if (settingsRows.length > 0) rules = JSON.parse(settingsRows[0].value);
+            responsePayload.summary.classification = ResultCalculationService.calculateDegreeClassification(cgpaRecord.cgpa, rules);
+        }
+        
+        res.json(responsePayload);
+
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Failed to generate transcript' });
+    }
+});
+
+app.get("/api/admin/settings/degree_classification", requireAuth, requireRole(['Administrator', 'Registrar', 'Admin']), async (req, res) => {
+    try {
+        const [setting] = await db.select().from(schema.systemSettings).where(eq(schema.systemSettings.key, 'degree_classification_rules'));
+        res.json({ rules: setting ? JSON.parse(setting.value) : [] });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Failed to get classification rules' });
+    }
+  });
+
+  app.put("/api/admin/settings/degree_classification", requireAuth, requireRole(['Administrator', 'Registrar', 'Admin']), async (req, res) => {
+    try {
+        const { rules } = req.body; // rules should be an array of { minCgpa: number, classification: string }
+        const [existing] = await db.select().from(schema.systemSettings).where(eq(schema.systemSettings.key, 'degree_classification_rules'));
+        if (existing) {
+            await db.update(schema.systemSettings).set({ value: JSON.stringify(rules) }).where(eq(schema.systemSettings.key, 'degree_classification_rules'));
+        } else {
+            await db.insert(schema.systemSettings).values({ key: 'degree_classification_rules', value: JSON.stringify(rules) });
+        }
+        
+        // Wait, maybe we don't recalculate CGPA automatically here because it's heavy, or maybe we do.
+        // Actually, CGPA records don't store classification, so we don't need to recalculate them.
+        res.json({ message: 'Rules updated' });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Failed to update classification rules' });
+    }
+  });
+
+  app.get("/api/admin/settings/repeat_course_policy", requireAuth, requireRole(['Administrator', 'Registrar', 'Admin']), async (req, res) => {
+    try {
+        const [setting] = await db.select().from(schema.systemSettings).where(eq(schema.systemSettings.key, 'repeat_course_policy'));
+        res.json({ policy: setting ? setting.value : 'Best Attempt Counts' });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Failed to get policy' });
+    }
+  });
+
+  app.put("/api/admin/settings/repeat_course_policy", requireAuth, requireRole(['Administrator', 'Registrar', 'Admin']), async (req, res) => {
+    try {
+        const { policy } = req.body;
+        const [existing] = await db.select().from(schema.systemSettings).where(eq(schema.systemSettings.key, 'repeat_course_policy'));
+        if (existing) {
+            await db.update(schema.systemSettings).set({ value: policy }).where(eq(schema.systemSettings.key, 'repeat_course_policy'));
+        } else {
+            await db.insert(schema.systemSettings).values({ key: 'repeat_course_policy', value: policy });
+        }
+        
+        // Recalculate CGPA for all students that have published results to reflect the new policy
+        const studentsWithResults = await db.select({ studentId: schema.results.studentId }).from(schema.results).where(eq(schema.results.status, 'published')).groupBy(schema.results.studentId);
+        const { ResultCalculationService } = await import('./src/server/services/ResultCalculationService');
+        for (const record of studentsWithResults) {
+            await ResultCalculationService.updateStudentGPAAndCGPA(record.studentId);
+        }
+
+        res.json({ message: 'Policy updated' });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Failed to update policy' });
+    }
+  });
+
+  // Result Amendment Request (Lecturer/HOD)
+  app.post("/api/results/:id/amend/request", requireAuth, requireRole(['Lecturer', 'HOD', 'Administrator']), async (req, res) => {
+    try {
+        const resultId = parseInt(req.params.id);
+        const { newCa, newExam, reason } = req.body;
+        
+        const [existingResult] = await db.select().from(schema.results).where(eq(schema.results.id, resultId));
+        if (!existingResult) return res.status(404).json({ error: "Result not found" });
+
+        const actorRole = (req as any).user.role;
+        const actorId = (req as any).user.id;
+        const actorDepartment = (req as any).user.department;
+
+        if (actorRole !== 'Administrator') {
+            if (actorRole === 'Lecturer') {
+                const [allocation] = await db.select().from(schema.courseAllocations).where(
+                    and(eq(schema.courseAllocations.courseId, existingResult.courseId), eq(schema.courseAllocations.lecturerId, actorId))
+                );
+                if (!allocation) return res.status(403).json({ error: "Unauthorized: You are not assigned to this course." });
+            } else if (actorRole === 'HOD') {
+                const [course] = await db.select({ departmentName: schema.departments.name })
+                    .from(schema.courses)
+                    .leftJoin(schema.departments, eq(schema.courses.departmentId, schema.departments.id))
+                    .where(eq(schema.courses.id, existingResult.courseId));
+                if (!course || course.departmentName !== actorDepartment) {
+                    return res.status(403).json({ error: "Unauthorized: Course not in your department." });
+                }
+            }
+        }
+
+        // Create amendment record
+        await db.insert(schema.resultAmendments).values({
+            resultId: resultId,
+            requestedById: (req as any).user.id,
+            oldCa: existingResult.caScore,
+            newCa: newCa,
+            oldExam: existingResult.examScore,
+            newExam: newExam,
+            reason: reason,
+            status: 'pending'
+        });
+
+        res.json({ message: "Amendment request submitted" });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: "Failed to submit request" });
+    }
+  });
+
+  // Result Amendment Approval (Registrar/Admin)
+  
+  app.get("/api/admin/amendments", requireAuth, requireRole(['Registrar', 'Administrator', 'HOD', 'Lecturer']), async (req, res) => {
+    try {
+        const { resultAmendments, results, courses, users } = await import('./src/db/schema');
+        const { desc, eq } = await import('drizzle-orm');
+        
+        let query = db.select({
+            id: resultAmendments.id,
+            oldCa: resultAmendments.oldCa,
+            newCa: resultAmendments.newCa,
+            oldExam: resultAmendments.oldExam,
+            newExam: resultAmendments.newExam,
+            reason: resultAmendments.reason,
+            status: resultAmendments.status,
+            createdAt: resultAmendments.createdAt,
+            requestedBy: {
+                id: users.id,
+                name: users.name,
+                email: users.email
+            },
+            course: {
+                code: courses.code,
+                title: courses.title
+            }
+        }).from(resultAmendments)
+        .leftJoin(results, eq(resultAmendments.resultId, results.id))
+        .leftJoin(courses, eq(results.courseId, courses.id))
+        .leftJoin(users, eq(resultAmendments.requestedById, users.id))
+        .orderBy(desc(resultAmendments.createdAt));
+
+        const data = await query;
+        res.json(data);
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: "Failed to fetch amendments" });
+    }
+  });
+
+  app.post("/api/admin/amendments/:id/approve", requireAuth, requireRole(['Registrar', 'Administrator']), async (req, res) => {
+    try {
+        const amendmentId = parseInt(req.params.id);
+        const { action } = req.body; // 'approve' or 'reject'
+        
+        const [amendment] = await db.select().from(schema.resultAmendments).where(eq(schema.resultAmendments.id, amendmentId));
+        if (!amendment) return res.status(404).json({ error: "Amendment not found" });
+
+        if (action === 'reject') {
+            await db.update(schema.resultAmendments).set({ status: 'rejected', approvedById: (req as any).user.id }).where(eq(schema.resultAmendments.id, amendmentId));
+            return res.json({ message: "Amendment rejected" });
+        }
+
+        if (action === 'approve') {
+            const { ResultCalculationService } = await import('./src/server/services/ResultCalculationService');
+            
+            // Get course
+            const [result] = await db.select().from(schema.results).where(eq(schema.results.id, amendment.resultId));
+            const [course] = await db.select().from(schema.courses).where(eq(schema.courses.id, result.courseId));
+            
+            const totalScore = ResultCalculationService.calculateTotalScore(amendment.newCa, amendment.newExam);
+            const { grade, gradePoint, isPass } = await ResultCalculationService.calculateGradeFromDB(totalScore);
+            const qualityPoint = ResultCalculationService.calculateQualityPoint(course.credits, gradePoint);
+
+            // Update result
+            await db.update(schema.results).set({
+                caScore: amendment.newCa,
+                examScore: amendment.newExam,
+                score: totalScore,
+                grade: grade,
+                gradePoint: gradePoint,
+                qualityPoint: qualityPoint
+            }).where(eq(schema.results.id, amendment.resultId));
+
+            // Mark amendment as approved
+            await db.update(schema.resultAmendments).set({ status: 'approved', approvedById: (req as any).user.id }).where(eq(schema.resultAmendments.id, amendmentId));
+
+            // Audit
+            await db.insert(schema.resultAuditLogs).values({
+                userId: (req as any).user.id,
+                role: (req as any).user.role,
+                studentId: result.studentId,
+                courseId: result.courseId,
+                action: 'Amendment Approved',
+                reason: amendment.reason,
+                oldCa: amendment.oldCa,
+                newCa: amendment.newCa,
+                oldExam: amendment.oldExam,
+                newExam: amendment.newExam,
+                oldGrade: result.grade,
+                newGrade: grade,
+                ipAddress: req.ip || req.headers['x-forwarded-for']?.toString()
+            });
+
+            // *CRITICAL STEP: RECALCULATE CGPA*
+            if (result.status === 'published' || result.status === 'locked') {
+                await ResultCalculationService.updateStudentGPAAndCGPA(result.studentId);
+            }
+
+            return res.json({ message: "Amendment approved and result updated" });
+        }
+        
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: "Failed to process amendment" });
+    }
+  });
+
+  app.use('/uploads', express.static(uploadDir));
+
+  // EXAM SCHEDULES
+  app.get("/api/exams", requireAuth, async (req, res) => {
+    try {
+      const { examSchedules, courses, users } = await import('./src/db/schema');
+      
+      
+      
+      const exams = await db.select({
+        id: examSchedules.id,
+        examDate: examSchedules.examDate,
+        startTime: examSchedules.startTime,
+        endTime: examSchedules.endTime,
+        venue: examSchedules.venue,
+        status: examSchedules.status,
+        instructions: examSchedules.instructions,
+        courseCode: courses.code,
+        courseTitle: courses.title,
+        invigilatorName: users.name,
+      })
+      .from(examSchedules)
+      .innerJoin(courses, eq(examSchedules.courseId, courses.id))
+      .leftJoin(users, eq(examSchedules.invigilatorId, users.id));
+      
+      res.json(exams);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to fetch exams" });
+    }
+  });
+
+  app.post("/api/lecturer/exams", requireAuth, requireRole(['Lecturer', 'Administrator']), async (req, res) => {
+    try {
+      const { examSchedules } = await import('./src/db/schema');
+      
+      const { courseId, examDate, startTime, endTime, venue, invigilatorId, instructions } = req.body;
+      
+      const newExam = await db.insert(examSchedules).values({
+        courseId, examDate, startTime, endTime, venue, invigilatorId, instructions,
+        createdAt: new Date()
+      }).returning();
+      
+      res.json(newExam[0]);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to schedule exam" });
+    }
+  });
+
+  app.delete("/api/lecturer/exams/:id", requireAuth, requireRole(['Lecturer', 'Administrator']), async (req, res) => {
+    try {
+      const { examSchedules } = await import('./src/db/schema');
+      
+      
+      await db.delete(examSchedules).where(eq(examSchedules.id, parseInt(req.params.id)));
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to delete exam" });
+    }
+  });
+
+  app.get("/api/student/exams", requireAuth, requireRole(['Student']), async (req, res) => {
+    try {
+      const studentId = (req as any).user.id;
+      const { examSchedules, courses, studentCourses, users } = await import('./src/db/schema');
+      
+      
+      
+      const exams = await db.select({
+        id: examSchedules.id,
+        examDate: examSchedules.examDate,
+        startTime: examSchedules.startTime,
+        endTime: examSchedules.endTime,
+        venue: examSchedules.venue,
+        status: examSchedules.status,
+        instructions: examSchedules.instructions,
+        courseCode: courses.code,
+        courseTitle: courses.title,
+        invigilatorName: users.name,
+      })
+      .from(examSchedules)
+      .innerJoin(courses, eq(examSchedules.courseId, courses.id))
+      .innerJoin(studentCourses, eq(courses.id, studentCourses.courseId))
+      .leftJoin(users, eq(examSchedules.invigilatorId, users.id))
+      .where(and(eq(studentCourses.studentId, studentId), eq(studentCourses.status, 'registered')));
+      
+      res.json(exams);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Failed to fetch student exams" });
+    }
+  });
+
+  
+
   // Catch-all for missing API routes to return JSON instead of HTML SPA fallback
   app.use("/api/*", (req, res) => {
     console.error(`[API 404] Missing endpoint: ${req.method} ${req.originalUrl}`);
@@ -6917,7 +8570,7 @@ ${JSON.stringify(equipments, null, 2)}`;
     clearInterval(pingInterval);
   });
 
-  httpServer.listen(PORT, "0.0.0.0", () => {
+  httpServer.listen(Number(PORT), "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
   });
 }

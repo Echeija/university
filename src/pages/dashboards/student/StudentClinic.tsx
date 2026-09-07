@@ -73,7 +73,7 @@ export default function StudentClinic() {
     }, 5000);
     
     return () => clearInterval(interval);
-  }, [token, user]);
+  }, [token, user?.id]);
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -485,7 +485,7 @@ export default function StudentClinic() {
 
             {isEditingProfile ? (
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-slate-500 mb-1">Blood Group</label>
                     <select value={profileData.bloodGroup} onChange={e => setProfileData({...profileData, bloodGroup: e.target.value})} className="w-full text-sm p-2 border border-slate-200 rounded">

@@ -66,7 +66,7 @@ export default function FeedbackButton() {
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                   Feedback Type
                 </label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <button
                     type="button"
                     onClick={() => setType('bug')}

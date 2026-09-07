@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useMemo } from 'react';
 
 type User = {
   id: number;
@@ -60,26 +60,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(false);
   }, []);
 
-  const login = (newToken: string, newUser: User) => {
+  const login = useCallback((newToken: string, newUser: User) => {
     setToken(newToken);
     setUser(newUser);
     localStorage.setItem('token', newToken);
     localStorage.setItem('user', JSON.stringify(newUser));
-  };
+  }, []);
 
-  const updateUser = (newUser: User) => {
+  const updateUser = useCallback((newUser: User) => {
     setUser(newUser);
     localStorage.setItem('user', JSON.stringify(newUser));
-  };
+  }, []);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     setToken(null);
     setUser(null);
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-  };
+  }, []);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -90,9 +90,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!res.ok) throw new Error(data.error || 'Failed to login');
     
     login(data.token, data.user);
-  };
+  }, [login]);
 
-  const signUp = async (formData: SignUpData) => {
+  const signUp = useCallback(async (formData: SignUpData) => {
     const res = await fetch('/api/auth/register-applicant', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -103,14 +103,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!res.ok) throw new Error(data.error || 'Failed to register');
     
     login(data.token, data.user);
-  };
+  }, [login]);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     logout();
-  };
+  }, [logout]);
+
+  const value = useMemo(() => ({
+    user,
+    token,
+    login,
+    logout,
+    updateUser,
+    signIn,
+    signUp,
+    signOut,
+    isLoading
+  }), [user, token, login, logout, updateUser, signIn, signUp, signOut, isLoading]);
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, updateUser, signIn, signUp, signOut, isLoading }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

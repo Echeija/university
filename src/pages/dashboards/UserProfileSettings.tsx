@@ -39,7 +39,7 @@ export default function UserProfileSettings() {
       }
       setIsCameraActive(true);
     } catch (err) {
-      console.error(err);
+      console.log("Camera error:", err?.message || err);
       notify({ title: 'Camera Error', message: 'Could not access the camera.', type: 'error' });
     }
   };
@@ -293,7 +293,7 @@ export default function UserProfileSettings() {
                     <h3 className="text-xl font-bold text-slate-900 dark:text-white text-center mb-1">{user?.name || 'Student Name'}</h3>
                     <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400 mb-4">{user?.role || 'Student'}</p>
                     
-                    <div className="w-full grid grid-cols-2 gap-4 text-left text-sm mb-6 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl">
+                    <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-4 text-left text-sm mb-6 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl">
                       <div>
                         <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">ID Number</p>
                         <p className="font-bold text-slate-900 dark:text-white">{user?.id?.toString()?.substring(0, 8).toUpperCase() || 'STD-000000'}</p>
@@ -364,7 +364,7 @@ export default function UserProfileSettings() {
               </div>
 
               <h4 className="font-bold text-slate-900 dark:text-white mb-4">Earned Badges</h4>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 sm:grid-cols-4 gap-4">
                 <div className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-800 rounded-xl border border-amber-200 dark:border-amber-900/50 shadow-sm relative overflow-hidden group">
                   <div className="absolute inset-0 bg-gradient-to-br from-amber-100/50 to-transparent dark:from-amber-900/20 opacity-0 group-hover:opacity-100 transition-opacity"></div>
                   <div className="w-16 h-16 mb-3 relative">

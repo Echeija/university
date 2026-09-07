@@ -21,6 +21,7 @@ export default function RootLayout() {
     },
     { name: 'Admissions', path: '/admissions' },
     { name: 'Faculties', path: '/faculties' },
+    { name: 'Courses', path: '/courses' },
     { name: 'Research', path: '/research' },
     { name: 'Gallery', path: '/gallery' },
     { name: 'News', path: '/news' },

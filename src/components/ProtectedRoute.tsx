@@ -55,7 +55,7 @@ export default function ProtectedRoute({ allowedRoles, timeoutMinutes = 15 }: Pr
         });
       };
     }
-  }, [user]);
+  }, [user?.id]);
 
   if (isLoading) {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;

@@ -88,7 +88,7 @@ export default function AssistantWidget() {
   }
 
   return (
-    <div className={`fixed right-6 bottom-6 print:hidden flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl rounded-2xl overflow-hidden z-50 transition-all duration-300 ease-in-out ${isMinimized ? 'w-80 h-14' : 'w-80 md:w-96 h-[500px]'}`}>
+    <div className={`fixed right-6 bottom-6 print:hidden flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl rounded-2xl overflow-hidden z-50 transition-all duration-300 ease-in-out ${isMinimized ? 'w-[calc(100vw-3rem)] sm:w-80 h-14' : 'w-[calc(100vw-3rem)] sm:w-80 md:w-96 h-[500px] max-h-[80vh]'}`}>
       {/* Header */}
       <div 
         className="bg-emerald-900 dark:bg-emerald-950 p-3 flex justify-between items-center cursor-pointer select-none border-b border-emerald-800"

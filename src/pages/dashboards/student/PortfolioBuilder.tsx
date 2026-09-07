@@ -496,7 +496,7 @@ export default function PortfolioBuilder() {
                 <label className="text-sm font-bold text-slate-700 dark:text-slate-300">Role</label>
                 <input required type="text" value={newExperience.role} onChange={e => setNewExperience({...newExperience, role: e.target.value})} className="w-full p-2.5 mt-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none dark:text-white" />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-bold text-slate-700 dark:text-slate-300">Start Date</label>
                   <input required type="month" value={newExperience.startDate} onChange={e => setNewExperience({...newExperience, startDate: e.target.value})} className="w-full p-2.5 mt-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none dark:text-white" />

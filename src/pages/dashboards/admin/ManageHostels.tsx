@@ -308,7 +308,7 @@ export default function ManageHostels() {
               </div>
               <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 flex-1">{hostel.description || 'No description provided.'}</p>
               
-              <div className="grid grid-cols-2 gap-4 text-sm mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-4">
                 <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
                   <Users className="w-4 h-4" /> {hostel.gender}
                 </div>

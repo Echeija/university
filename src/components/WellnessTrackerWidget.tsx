@@ -157,7 +157,7 @@ export default function WellnessTrackerWidget() {
         <div className="space-y-6">
           {chartData.length > 0 ? (
             <>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 sm:grid-cols-4 gap-4">
                 <div className="p-3 bg-rose-50 dark:bg-rose-900/20 rounded-xl">
                   <div className="flex items-center gap-2 text-rose-600 mb-1"><Heart className="w-4 h-4"/> <span className="text-xs font-semibold">Avg Mood</span></div>
                   <div className="text-xl font-bold text-slate-800 dark:text-slate-200">

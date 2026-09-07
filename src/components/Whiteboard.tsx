@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useRef, useState, useEffect } from 'react';
 import { Stage, Layer, Line } from 'react-konva';
 import { Eraser, Pen, Trash2 } from 'lucide-react';

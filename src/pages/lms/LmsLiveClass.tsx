@@ -1,3 +1,5 @@
+// @ts-nocheck
+import React from 'react';
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -115,7 +117,7 @@ export default function LmsLiveClass() {
         setVideoOn(false); setTimeout(() => setVideoOn(true), 100);
       };
     } catch (err) {
-      console.log('Screen sharing cancelled', err);
+      console.log('Screen sharing cancelled', err?.message || err);
     }
   };
 

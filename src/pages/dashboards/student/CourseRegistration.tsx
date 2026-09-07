@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../../contexts/AuthContext';
-import { CheckCircle2, BookOpen, Plus, Trash2 } from 'lucide-react';
+import { Printer, CheckCircle2, BookOpen, Plus, Trash2 } from 'lucide-react';
 import { Skeleton } from '../../../components/ui/Skeleton';
 import { useNotification } from '../../../contexts/NotificationContext';
 
@@ -139,10 +139,16 @@ export default function CourseRegistration() {
   const totalCredits = registeredCourses.reduce((sum, rc) => sum + rc.course.credits, 0);
 
   return (
-    <div>
-      <div className="mb-8">
-        <h2 className="text-3xl font-black text-slate-900 tracking-tight">Course Registration</h2>
-        <p className="text-slate-500 mt-1">Select your courses for the 2026/2027 academic session (1st Semester).</p>
+    <div id="print-area">
+      <div className="mb-8 flex justify-between items-start">
+        <div>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Course Registration</h2>
+          <p className="text-slate-500 mt-1">Select your courses for the 2026/2027 academic session (1st Semester).</p>
+        </div>
+        <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors font-medium print:hidden shadow-sm">
+          <Printer className="w-4 h-4" />
+          <span>Print Registration</span>
+        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

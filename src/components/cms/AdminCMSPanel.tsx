@@ -226,7 +226,7 @@ export default function AdminCMSPanel() {
               const Icon = mod.icon;
               return (
                 <button
-                  key={mod.id}
+                  
                   onClick={() => setActiveTab(mod.id)}
                   className="flex flex-col text-left p-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-300 dark:hover:border-indigo-700 transition-all group"
                 >
@@ -290,7 +290,7 @@ export default function AdminCMSPanel() {
           </div>
           {['News', 'Events'].map((tab) => (
             <button
-              key={tab}
+              
               onClick={() => setActiveTab(tab)}
               className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                 activeTab === tab
@@ -307,7 +307,7 @@ export default function AdminCMSPanel() {
           </div>
           {CONTENT_SECTIONS.map((tab) => (
             <button
-              key={tab}
+              
               onClick={() => setActiveTab(tab)}
               className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                 activeTab === tab
@@ -354,7 +354,7 @@ export default function AdminCMSPanel() {
               {isLoading ? (
                 <div className="space-y-4 animate-pulse">
                   {[1, 2, 3].map(i => (
-                    <div key={i} className="h-16 bg-slate-100 dark:bg-slate-700/50 rounded-lg w-full"></div>
+                    <div  className="h-16 bg-slate-100 dark:bg-slate-700/50 rounded-lg w-full"></div>
                   ))}
                 </div>
               ) : (
@@ -440,7 +440,7 @@ export default function AdminCMSPanel() {
                     if (isContentBlock) {
                       return (
                         <CMSBlockEditor
-                          key={item.id}
+                          
                           section={activeTab}
                           title={item.title}
                           defaultContent={item.content}
@@ -453,7 +453,7 @@ export default function AdminCMSPanel() {
                     }
 
                     return (
-                      <div key={item.id} className="h-full">
+                      <div  className="h-full">
                         {renderCardContent(item.title, item.content, item.image_url)}
                       </div>
                     );
@@ -554,7 +554,7 @@ export default function AdminCMSPanel() {
                   )}
                   
                   {(activeTab === 'News' || activeTab === 'Events') && (
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                           Date

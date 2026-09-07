@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
 import { FileText, Calendar, Clock, CheckCircle2, AlertCircle, Upload, X, Loader2 } from 'lucide-react';
 import { useNotification } from '../../../../contexts/NotificationContext';
-import { supabase } from '../../../../lib/supabase';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { storage } from '../../../../lib/firebase';
+import { ref, uploadBytes } from 'firebase/storage';
 
 export default function LMSAssignments({ role }: { role: string | undefined }) {
   const { notify } = useNotification();
+  const { user } = useAuth();
   
   // We'll manage assignments in state so we can update their status after submission
   const [assignments, setAssignments] = useState([
@@ -58,30 +61,23 @@ export default function LMSAssignments({ role }: { role: string | undefined }) {
 
     setIsUploading(true);
     
+    
     try {
-      // Create a unique file path: assignments/assignmentId_timestamp_filename
+      // Create a unique file path: assignments/userId_assignmentId_timestamp_filename
       const fileExt = selectedFile.name.split('.').pop();
-      const fileName = `${assignmentId}_${Date.now()}.${fileExt}`;
-      const filePath = `submissions/${fileName}`;
+      const fileName = `${user?.id || 'student'}_${assignmentId}_${Date.now()}.${fileExt}`;
+      const filePath = `assignments/submissions/${fileName}`;
       
-      const { data, error } = await supabase.storage
-        .from('assignments')
-        .upload(filePath, selectedFile, {
-          cacheControl: '3600',
-          upsert: false
-        });
-        
-      if (error) {
-        throw error;
-      }
+      const storageRef = ref(storage, filePath);
+      await uploadBytes(storageRef, selectedFile);
       
-      notify({ title: 'Success', message: 'Assignment submitted successfully', type: 'success' });
+      notify({ title: 'Success', message: 'Assignment submitted successfully to Firebase Storage', type: 'success' });
       
       // Update local state to reflect submission
       setAssignments(prev => prev.map(a => 
-        a.id === assignmentId 
-          ? { ...a, status: 'submitted' } 
-          : a
+         a.id === assignmentId 
+           ? { ...a, status: 'submitted' } 
+           : a
       ));
       
       setActiveUploadId(null);
@@ -89,11 +85,12 @@ export default function LMSAssignments({ role }: { role: string | undefined }) {
     } catch (err: any) {
       console.error('Upload error:', err);
       notify({ 
-        title: 'Upload Failed', 
-        message: err.message || 'Failed to upload assignment to Supabase storage. Ensure the "assignments" bucket exists.', 
-        type: 'error' 
-      });
+         title: 'Upload Failed', 
+         message: err.message || 'Failed to upload assignment to Firebase storage.', 
+         type: 'error' 
+       });
     } finally {
+
       setIsUploading(false);
     }
   };

@@ -87,7 +87,7 @@ export default function StudentCalendar() {
     if (user?.id) {
       fetchEvents();
     }
-  }, [user]);
+  }, [user?.id]);
 
   const fetchEvents = async () => {
     setIsLoading(true);
@@ -137,7 +137,7 @@ export default function StudentCalendar() {
               [...lectures, ...exams]
                 .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
                 .map((item) => (
-                <DraggableEventCard key={item.id} event={item} onViewDetails={setSelectedEvent} />
+                <DraggableEventCard  event={item} onViewDetails={setSelectedEvent} />
               ))
             )}
           </div>
@@ -161,7 +161,7 @@ export default function StudentCalendar() {
               <p className="text-sm text-slate-500 text-center py-4">No upcoming deadlines.</p>
             ) : (
               deadlines.map((item) => (
-                <DraggableEventCard key={item.id} event={item} onViewDetails={setSelectedEvent} />
+                <DraggableEventCard  event={item} onViewDetails={setSelectedEvent} />
               ))
             )}
           </div>

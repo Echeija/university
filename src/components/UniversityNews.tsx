@@ -43,7 +43,7 @@ export default function UniversityNews() {
         </div>
         <div className="space-y-4 flex-grow">
           {[1, 2, 3].map(i => (
-            <Skeleton key={i} className="h-24 w-full rounded-xl" />
+            <div key={i}><Skeleton  className="h-24 w-full rounded-xl" /></div>
           ))}
         </div>
       </div>

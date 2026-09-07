@@ -81,7 +81,7 @@ export default function StudentMandatoryDocuments() {
     if (isAdminOrStaff) {
       fetchAdminDocuments();
     }
-  }, [token, user]);
+  }, [token, user?.id]);
 
   const fetchStudentDocuments = async () => {
     try {

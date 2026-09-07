@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useNotification } from '../../../contexts/NotificationContext';
-import { CheckCircle2, AlertCircle, Calendar } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Calendar, Printer } from 'lucide-react';
 
 export default function SemesterRegistration() {
   const [isRegistering, setIsRegistering] = useState(false);
@@ -23,10 +23,16 @@ export default function SemesterRegistration() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
-      <div>
-        <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Semester Registration</h2>
-        <p className="text-slate-500 dark:text-slate-400 mt-1">Activate your student status for the current academic term.</p>
+    <div id="print-area" className="max-w-4xl mx-auto space-y-8">
+      <div className="flex justify-between items-start">
+        <div>
+          <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Semester Registration</h2>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Activate your student status for the current academic term.</p>
+        </div>
+        <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors font-medium print:hidden shadow-sm">
+          <Printer className="w-4 h-4" />
+          <span>Print Registration</span>
+        </button>
       </div>
 
       {registered ? (

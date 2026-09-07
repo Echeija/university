@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { 
   Bell, 
@@ -11,9 +11,15 @@ import {
   Search,
   Filter,
   Trash2,
-  Check
+  Check,
+  GraduationCap
 } from 'lucide-react';
 import SkeletonLoader from '../../components/SkeletonLoader';
+import { 
+  subscribeStudentGradeNotifications, 
+  markGradeNotificationRead, 
+  deleteGradeNotification 
+} from '../../services/gradeNotificationService';
 
 interface Alert {
   id: string;
@@ -23,6 +29,7 @@ interface Alert {
   severity: 'high' | 'medium' | 'low';
   date: string;
   isRead: boolean;
+  isFirestore?: boolean;
 }
 
 const mockAlerts: Alert[] = [
@@ -78,21 +85,63 @@ export default function AlertsNotifications() {
   const [alerts, setAlerts] = useState<Alert[]>(mockAlerts);
   const [filter, setFilter] = useState<'all' | 'unread' | 'academic' | 'system'>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // Simulate loading
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleMarkAsRead = (id: string) => {
+  // Subscribe to real-time Firestore grade notifications
+  useEffect(() => {
+    if (!user || !user.id) return;
+
+    const unsubscribe = subscribeStudentGradeNotifications(
+      user.id,
+      (firestoreNotifications) => {
+        const gradeAlerts: Alert[] = firestoreNotifications.map(gn => ({
+          id: gn.id || `gn-${Math.random()}`,
+          title: gn.actionType === 'UPDATE_GRADE' 
+            ? `Grade Updated: ${gn.courseCode}` 
+            : `New Grade Posted: ${gn.courseCode}`,
+          message: gn.message,
+          type: 'academic',
+          severity: 'high',
+          date: gn.createdAt,
+          isRead: gn.isRead,
+          isFirestore: true
+        }));
+
+        setAlerts(prev => {
+          // Keep static non-firestore alerts, merge with real-time firestore alerts
+          const nonFirestore = prev.filter(a => !a.isFirestore);
+          return [...gradeAlerts, ...nonFirestore];
+        });
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user?.id]);
+
+  const handleMarkAsRead = async (id: string) => {
+    const target = alerts.find(a => a.id === id);
+    if (target?.isFirestore) {
+      await markGradeNotificationRead(id);
+    }
     setAlerts(alerts.map(alert => 
       alert.id === id ? { ...alert, isRead: true } : alert
     ));
   };
 
-  const handleMarkAllAsRead = () => {
+  const handleMarkAllAsRead = async () => {
+    alerts.forEach(async (a) => {
+      if (a.isFirestore && !a.isRead) {
+        await markGradeNotificationRead(a.id);
+      }
+    });
     setAlerts(alerts.map(alert => ({ ...alert, isRead: true })));
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
+    const target = alerts.find(a => a.id === id);
+    if (target?.isFirestore) {
+      await deleteGradeNotification(id);
+    }
     setAlerts(alerts.filter(alert => alert.id !== id));
   };
 

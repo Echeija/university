@@ -116,7 +116,10 @@ export default function FeeHistory({ payments, onPay, onViewReceipt }: FeeHistor
                           Pay Now
                         </button>
                       ) : payment.status === 'successful' ? (
-                        <button onClick={() => onViewReceipt && onViewReceipt(payment)} className="text-sm text-emerald-600 font-medium hover:text-emerald-700">Receipt</button>
+                        <div className="flex items-center gap-3 justify-end">
+  <button onClick={() => onViewReceipt && onViewReceipt(payment)} className="text-sm text-emerald-600 font-medium hover:text-emerald-700">View</button>
+  <a href={`/uploads/receipts/${payment.reference}.pdf`} target="_blank" download={`Receipt_${payment.reference}.pdf`} className="text-sm bg-emerald-50 text-emerald-700 px-3 py-1 rounded hover:bg-emerald-100 transition-colors">Download PDF</a>
+</div>
                       ) : null}
                     </td>
                   </tr>

@@ -194,7 +194,7 @@ export default function LecturerDashboard() {
         </div>
       </div>
 
-      <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 md:grid-cols-4 gap-4">
         <Link to="/dashboard/assigned-courses" className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 flex flex-col items-center justify-center gap-2 hover:border-emerald-500 hover:shadow-md transition-all text-slate-700 dark:text-slate-200 hover:text-emerald-600 dark:hover:text-emerald-400 group">
           <div className="w-12 h-12 rounded-full bg-slate-50 dark:bg-slate-700/50 flex items-center justify-center group-hover:bg-emerald-50 dark:group-hover:bg-emerald-900/30 transition-colors">
             <BookOpen className="w-6 h-6" />

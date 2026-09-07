@@ -1,0 +1,29 @@
+{
+  "entities": {
+    "GradeNotification": {
+      "title": "Grade Notification",
+      "description": "Real-time notification emitted when a lecturer updates or posts a new grade for a student.",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "number", "description": "Student user ID receiving the notification" },
+        "courseId": { "type": "number", "description": "ID of the course" },
+        "courseCode": { "type": "string", "maxLength": 50, "description": "Course code e.g. CSC 301" },
+        "courseTitle": { "type": "string", "maxLength": 200, "description": "Course title e.g. Data Structures" },
+        "lecturerName": { "type": "string", "maxLength": 100, "description": "Name of the lecturer" },
+        "score": { "type": "number", "description": "Score achieved by student out of 100" },
+        "grade": { "type": "string", "maxLength": 5, "description": "Letter grade e.g. A, B+" },
+        "actionType": { "type": "string", "enum": ["NEW_GRADE", "UPDATE_GRADE"], "description": "Type of grade event" },
+        "message": { "type": "string", "maxLength": 500, "description": "Formatted alert message text" },
+        "isRead": { "type": "boolean", "description": "Whether the notification was read" },
+        "createdAt": { "type": "string", "description": "ISO timestamp when published" }
+      },
+      "required": ["studentId", "courseId", "courseCode", "score", "grade", "actionType", "message", "isRead", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/grade_notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/GradeNotification" },
+      "description": "Firestore collection for real-time grade alerts"
+    }
+  }
+}

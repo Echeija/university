@@ -55,7 +55,11 @@ export default function AppointmentReminderSystem() {
             }
           });
 
-          setUpcomingAppt(closestAppt);
+          setUpcomingAppt((prev: any) => {
+            if (!closestAppt && !prev) return null;
+            if (closestAppt && prev && closestAppt.id === prev.id) return prev;
+            return closestAppt;
+          });
         }
       } catch (err) {
         console.error('Failed to check appointments:', err);
@@ -68,7 +72,7 @@ export default function AppointmentReminderSystem() {
     const interval = setInterval(checkAppointments, 15 * 60 * 1000); // 15 mins
     return () => clearInterval(interval);
     
-  }, [user, token, notify]);
+  }, [user?.id, user?.role, user?.email, token]);
 
   if (!upcomingAppt) return null;
 

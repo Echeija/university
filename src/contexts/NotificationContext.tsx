@@ -59,7 +59,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             </div>
             <div className="flex-1">
               <h4 className="font-bold text-sm">{n.title}</h4>
-              {n.message && <p className="text-xs opacity-90 mt-1">{n.message}</p>}
+              {n.message && <p className="text-xs opacity-90 mt-1 whitespace-pre-line">{n.message}</p>}
             </div>
             <button 
               onClick={() => removeNotification(n.id)}

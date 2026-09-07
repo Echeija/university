@@ -175,7 +175,7 @@ export default function AcademicCalendar() {
           {Object.entries(groupedEvents).map(([monthYear, monthEvents]) => (
             <div key={monthYear} className="relative">
               <div className="absolute -left-[54px] md:-left-[70px] bg-slate-100 text-slate-500 font-bold text-xs uppercase tracking-widest py-1 px-3 rounded-full shadow-sm border border-slate-200">
-                {format(new Date(monthEvents[0].startDate), 'MMM')}
+                {format(new Date((monthEvents as any[])[0].startDate), 'MMM')}
               </div>
               <h4 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
                 {monthYear}
@@ -183,7 +183,7 @@ export default function AcademicCalendar() {
               </h4>
               
               <div className="space-y-6">
-                {monthEvents.map((event, idx) => (
+                {(monthEvents as any[]).map((event: any, idx: number) => (
                   <div 
                     key={event.id}
                     onClick={() => setEventDetailModal(event)}

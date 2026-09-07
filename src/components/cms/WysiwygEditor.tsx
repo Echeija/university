@@ -236,7 +236,7 @@ export default function WysiwygEditor({ value, onChange }: WysiwygEditorProps) {
                     <p>No images found. Upload one to get started.</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-4">
                     {mediaFiles.map((file, i) => (
                       <div 
                         key={i}

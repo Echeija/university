@@ -1,31 +1,16 @@
 const fs = require('fs');
-let code = fs.readFileSync('src/pages/dashboards/DashboardRouter.tsx', 'utf8');
 
-const routeSection = `            <Route path="/live-lecture" element={<LiveLecture />} />
-            <Route path="/result-upload" element={<LecturerResultUpload />} />
-            <Route path="/continuous-assessment" element={<LecturerContinuousAssessment />} />
-            <Route path="/assignments" element={<LecturerAssignments />} />
-            <Route path="/teaching-materials" element={<LecturerTeachingMaterials />} />
-            <Route path="/video-upload" element={<LecturerVideoUpload />} />
-            <Route path="/class-management" element={<LecturerClassManagement />} />
-            <Route path="/announcements" element={<LecturerAnnouncements />} />
-            <Route path="/research" element={<LecturerResearch />} />
-            <Route path="/performance-analytics" element={<LecturerPerformanceAnalytics />} />`;
+const routerFile = 'src/pages/dashboards/DashboardRouter.tsx';
+let code = fs.readFileSync(routerFile, 'utf8');
 
-code = code.replace('<Route path="/live-lecture" element={<LiveLecture />} />', routeSection);
+code = code.replace(
+  /<Route path="\/assignments" element=\{<StudentAssignments \/>\} \/>/g,
+  ''
+);
 
-const newImports = `
-import LecturerResultUpload from './lecturer/LecturerResultUpload';
-import LecturerContinuousAssessment from './lecturer/LecturerContinuousAssessment';
-import LecturerAssignments from './lecturer/LecturerAssignments';
-import LecturerTeachingMaterials from './lecturer/LecturerTeachingMaterials';
-import LecturerVideoUpload from './lecturer/LecturerVideoUpload';
-import LecturerClassManagement from './lecturer/LecturerClassManagement';
-import LecturerAnnouncements from './lecturer/LecturerAnnouncements';
-import LecturerResearch from './lecturer/LecturerResearch';
-import LecturerPerformanceAnalytics from './lecturer/LecturerPerformanceAnalytics';
-`;
+code = code.replace(
+  /<Route path="\/assignments" element=\{<LecturerAssignments \/>\} \/>/g,
+  '<Route path="/assignments" element={role === \'Lecturer\' ? <LecturerAssignments /> : <StudentAssignments />} />'
+);
 
-code = code.replace("import LiveLecture from './LiveLecture';", "import LiveLecture from './LiveLecture';" + newImports);
-
-fs.writeFileSync('src/pages/dashboards/DashboardRouter.tsx', code);
+fs.writeFileSync(routerFile, code);

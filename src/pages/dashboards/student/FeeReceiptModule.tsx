@@ -22,7 +22,7 @@ export default function FeeReceiptModule() {
 
   useEffect(() => {
     fetchPayments();
-  }, [user]);
+  }, [user?.id]);
 
   const fetchPayments = async () => {
     if (!user) return;

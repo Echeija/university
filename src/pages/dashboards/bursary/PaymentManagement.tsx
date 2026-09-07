@@ -78,6 +78,7 @@ export default function PaymentManagement() {
                 <th className="px-6 py-4">Amount (₦)</th>
                 <th className="px-6 py-4">Status</th>
                 <th className="px-6 py-4">Date</th>
+                <th className="px-6 py-4 text-center">Receipt</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
@@ -112,6 +113,13 @@ export default function PaymentManagement() {
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-500 font-medium">
                       {new Date(payment.createdAt).toLocaleDateString()}
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      {(payment.status === 'completed' || payment.status === 'successful') && (
+                        <a href={`/uploads/receipts/${payment.reference}.pdf`} target="_blank" download={`Receipt_${payment.reference}.pdf`} className="text-xs bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg font-bold hover:bg-emerald-100 transition-colors inline-block">
+                          Download
+                        </a>
+                      )}
                     </td>
                   </tr>
                 ))

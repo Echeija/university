@@ -12,6 +12,8 @@ import LecturerResearch from './lecturer/LecturerResearch';
 import LecturerPerformanceAnalytics from './lecturer/LecturerPerformanceAnalytics';
 
 import AcademicDashboard from "./academic/AcademicDashboard";
+import ResultApproval from "./hod/ResultApproval";
+import ResultPublication from "./registrar/ResultPublication";
 import Dashboard from "./Dashboard";
 import { supabase } from '../../lib/supabase';
 import { useEffect, useState } from 'react';
@@ -20,7 +22,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSupabaseTheme } from '../../hooks/useSupabaseTheme';
 import { useTheme } from '../../contexts/ThemeContext';
-import { BookText, Bell, Menu, X, FolderOpen, Megaphone, BarChart3, LogOut, Microscope, Layout, User, Briefcase, Pill, Activity, ScanLine, Building, ClipboardList, CheckSquare, Calendar, Home, Users, Settings, BookOpen, GraduationCap, CreditCard, LayoutTemplate, FileSpreadsheet, FileText, Network, Book, ShieldAlert, Moon, Sun, MonitorPlay, Video, Star, MessageSquare, PenSquare, Eye, Type } from 'lucide-react';
+import { BookText, Bell, Menu, X, FolderOpen, Megaphone, BarChart3, LogOut, Microscope, Layout, User, Briefcase, Pill, Activity, ScanLine, Building, ClipboardList, CheckSquare, Calendar, Home, Users, Settings, BookOpen, GraduationCap, CreditCard, LayoutTemplate, FileSpreadsheet, FileText, Network, Book, ShieldAlert, Moon, Sun, MonitorPlay, Video, Star, MessageSquare, PenSquare, Eye, Type  , FileCheck, Edit } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import NotificationsMenu from '../../components/NotificationsMenu';
 import PortalFooter from "../../components/PortalFooter";
@@ -28,6 +30,8 @@ import GlobalSearch from '../../components/GlobalSearch';
 
 import CourseRegistration from './student/CourseRegistration';
 import AcademicResults from './student/AcademicResults';
+import AcademicHistory from "./student/AcademicHistory";
+import StudentAssignments from './student/StudentAssignments';
 import Payments from './student/Payments';
 import FeeReceiptModule from './student/FeeReceiptModule';
 import CourseEvaluations from "./student/CourseEvaluations";
@@ -45,6 +49,7 @@ import SessionManager from '../../components/SessionManager';
 import StudentProfile from './student/StudentProfile';
 import JobsPortal from './student/JobsPortal';
 import TranscriptRequests from './student/TranscriptRequests';
+import AdminTranscripts from './admin/Transcripts';
 import PortfolioBuilder from './student/PortfolioBuilder';
 
 import ClinicDashboard from './clinic/ClinicDashboard';
@@ -59,8 +64,12 @@ import VirtualClasses from './lms/VirtualClasses';
 
 import UserManagement from './admin/UserManagement';
 import SystemSettings from './admin/SystemSettings';
+import AcademicSettings from './admin/AcademicSettings';
+import GradingSettings from './admin/GradingSettings';
 import PaymentSettings from './admin/PaymentSettings';
 import AdminAuditLogs from './admin/AdminAuditLogs';
+import ResultAuditLogs from './admin/ResultAuditLogs';
+import ResultAnalytics from './admin/ResultAnalytics';
 import EvaluationReports from './admin/EvaluationReports';
 import MessagesPortal from './student/MessagesPortal';
 import AdminDashboard from './admin/AdminDashboard';
@@ -88,9 +97,11 @@ import LMSPortal from './lms/LMSPortal';
 import AdmissionsInquiries from './registrar/AdmissionsInquiries';
 import AdmissionManagement from './registrar/AdmissionManagement';
 import PaymentManagement from './bursary/PaymentManagement';
+import FeeManagement from './bursary/FeeManagement';
 import DepartmentManagement from './hod/DepartmentManagement';
 import ManageDepartments from './admin/ManageDepartments';
 import ManageFaculties from './admin/ManageFaculties';
+import ResultAmendments from './admin/ResultAmendments';
 import FacultyManagement from './dean/FacultyManagement';
 import LibraryManagement from './library/LibraryManagement';
 import DigitalLibrary from './DigitalLibrary';
@@ -105,6 +116,9 @@ import CourseEnrollmentWidget from '../../components/CourseEnrollmentWidget';
 import ApplicantDashboardHome from './applicant/ApplicantDashboardHome';
 import Complaints from './student/Complaints';
 import SemesterRegistration from './student/SemesterRegistration';
+import StudentExams from './student/StudentExams';
+import LecturerExamManagement from './lecturer/LecturerExamManagement';
+
 
 import RealtimeNotifications from '../../components/RealtimeNotifications';
 
@@ -116,28 +130,10 @@ export default function DashboardRouter() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
-    const fetchProfile = async () => {
-      if (user?.email) {
-        try {
-          const { data, error } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('email', user.email)
-            .single();
-            
-          if (data && !error) {
-            setUserProfile(data);
-          } else {
-            setUserProfile(user);
-          }
-        } catch (e) {
-          setUserProfile(user);
-        } finally {
-          setIsLoadingProfile(false);
-        }
-      }
-    };
-    fetchProfile();
+    if (user) {
+      setUserProfile(user);
+      setIsLoadingProfile(false);
+    }
   }, [user]);
   const { theme, toggleTheme, highContrast, toggleHighContrast, textScale, setTextScale } = useTheme();
   const role = userProfile?.role || user?.role || '';
@@ -153,9 +149,11 @@ export default function DashboardRouter() {
 
 
   const getPageTitle = () => {
+    if (location.pathname.includes('/result-upload')) return 'Academic Result Entry';
     if (location.pathname.includes('/courses')) return 'Course Registration';
     if (location.pathname.includes('/manage-courses')) return 'Course Management';
     if (location.pathname.includes('/results')) return 'Academic Results';
+    if (location.pathname.includes('/result-analytics')) return 'Result Analytics';
     if (location.pathname.includes("/evaluations")) return "Course Evaluations";
 
     if (location.pathname.includes('/payments')) return 'Payments';
@@ -275,6 +273,14 @@ export default function DashboardRouter() {
                 My Profile
               </Link>
 
+                            <Link to="/dashboard/academic-settings" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/academic-settings') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
+                <Settings className="w-5 h-5 opacity-75" />
+                Academic Settings
+              </Link>
+                            <Link to="/dashboard/grading-settings" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/grading-settings') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
+                <CheckSquare className="w-5 h-5 opacity-75" />
+                Grading Rules
+              </Link>
               <Link to="/dashboard/settings" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/settings') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
                 <Settings className="w-5 h-5 opacity-75" />
                 System Settings
@@ -363,6 +369,10 @@ export default function DashboardRouter() {
                 <BookOpen className="w-5 h-5 opacity-75" />
                 Course Registration
               </Link>
+              <Link to="/dashboard/assignments" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/assignments') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
+                <BookText className="w-5 h-5 opacity-75" />
+                Assignments
+              </Link>
               <Link to="/dashboard/semester-registration" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/semester-registration') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
                 <Book className="w-5 h-5 opacity-75" />
                 Semester Registration
@@ -370,6 +380,14 @@ export default function DashboardRouter() {
               <Link to="/dashboard/results" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/results') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
                 <GraduationCap className="w-5 h-5 opacity-75" />
                 Academic Results
+              </Link>
+              <Link to="/dashboard/academic-history" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/academic-history') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
+                <BookOpen className="w-5 h-5 opacity-75" />
+                Academic History
+              </Link>
+              <Link to="/dashboard/exams" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/exams') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
+                <Calendar className="w-5 h-5 opacity-75" />
+                My Exams
               </Link>
 
                             <Link to="/dashboard/library-booking" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/library-booking') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
@@ -452,6 +470,18 @@ export default function DashboardRouter() {
                 <BookOpen className="w-5 h-5 opacity-75" />
                 Assigned Courses
               </Link>
+              <Link to="/dashboard/exams" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/exams') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
+                <Calendar className="w-5 h-5 opacity-75" />
+                Exam Management
+              </Link>
+              <Link to="/dashboard/continuous-assessment" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/continuous-assessment') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
+                <FileCheck className="w-5 h-5 opacity-75" />
+                CA Management
+              </Link>
+              <Link to="/dashboard/result-upload" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/result-upload') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
+                <FileSpreadsheet className="w-5 h-5 opacity-75" />
+                Result Entry
+              </Link>
 
               {/* Grading will be accessed via courses, but can have a global link or not */}
             </>
@@ -468,6 +498,31 @@ export default function DashboardRouter() {
           {(role === 'Registrar' || role === 'Administrator' || role === 'Admission Officer') && (
             <>
               
+              <Link to="/dashboard/publish-results" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/publish-results') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
+                <FileCheck className="w-5 h-5 opacity-75" />
+                Publish Results
+              </Link>
+              <Link to="/dashboard/official-transcripts" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/official-transcripts') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
+                <FileText className="w-5 h-5 opacity-75" />
+                Official Transcripts
+              </Link>
+              {(role === 'Registrar' || role === 'Administrator') && (
+                <>
+                  
+              <Link to="/dashboard/result-amendments" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/result-amendments') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
+                <Edit className="w-5 h-5" />
+                Amendments
+              </Link>
+              <Link to="/dashboard/result-audit" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/result-audit') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
+                    <Activity className="w-5 h-5 opacity-75" />
+                    Result Audit Logs
+                  </Link>
+                  <Link to="/dashboard/result-analytics" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/result-analytics') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
+                    <BarChart3 className="w-5 h-5 opacity-75" />
+                    Result Analytics
+                  </Link>
+                </>
+              )}
               <Link to="/dashboard/admissions" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/admissions') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
                 <Users className="w-5 h-5 opacity-75" />
                 Admissions
@@ -490,6 +545,13 @@ export default function DashboardRouter() {
 
           {(role === 'HOD' || role === 'Administrator') && (
             <>
+              <div className="px-3 py-2 mt-4 text-xs font-semibold text-emerald-300 uppercase tracking-wider">
+                Academic Results
+              </div>
+              <Link to="/dashboard/approve-results" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/approve-results') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
+                <CheckSquare className="w-5 h-5 opacity-75" />
+                Pending Approval
+              </Link>
               <Link to="/dashboard/department" className={`flex items-center gap-3 px-3 py-2 rounded-lg font-medium transition-colors ${isActive('/dashboard/department') ? 'bg-emerald-800 text-white' : 'text-emerald-100 hover:bg-emerald-800/50'}`}>
                 <Users className="w-5 h-5 opacity-75" />
                 Department
@@ -617,6 +679,8 @@ export default function DashboardRouter() {
 
             <Route path="/courses" element={<CourseRegistration />} />
             <Route path="/results" element={<AcademicResults />} />
+            <Route path="/academic-history" element={<AcademicHistory />} />
+            <Route path="/exams" element={<StudentExams />} />
             <Route path="/resources" element={<ResourceLibrary />} />
             <Route path="/library-booking" element={<LibraryBooking />} />
             <Route path="/lab-booking" element={<ResearchLabBooking />} />
@@ -633,15 +697,22 @@ export default function DashboardRouter() {
             <Route path="/fee-receipts" element={<FeeReceiptModule />} />
             
             <Route path="/users" element={<UserManagement />} />
+            <Route path="/academic-settings" element={<AcademicSettings />} />
+            <Route path="/grading-settings" element={<GradingSettings />} />
             <Route path="/settings" element={role === 'Admin' ? <SystemSettings /> : <UserProfileSettings />} />
             <Route path="/student-profile" element={<StudentProfile />} />
+            
             <Route path="/jobs" element={<JobsPortal />} />
             <Route path="/transcripts" element={<TranscriptRequests />} />
+            <Route path="/official-transcripts" element={<AdminTranscripts />} />
             <Route path="/complaints" element={<Complaints />} />
             <Route path="/semester-registration" element={<SemesterRegistration />} />
             <Route path="/portfolio" element={<PortfolioBuilder />} />
             <Route path="/payment-settings" element={<PaymentSettings />} />
             <Route path="/audit" element={<AdminAuditLogs />} />
+            <Route path="/result-analytics" element={<ResultAnalytics />} />
+            <Route path="/result-audit" element={<ResultAuditLogs />} />
+            <Route path="/result-amendments" element={<ResultAmendments />} />
             <Route path="/cms" element={<AdminCMSDashboard />} />
             <Route path="/manage-courses" element={<CourseManagement />} />
 
@@ -655,6 +726,7 @@ export default function DashboardRouter() {
             <Route path="/admissions" element={<AdmissionManagement />} />
             <Route path="/inquiries" element={<AdmissionsInquiries />} />
             <Route path="/bursary" element={<PaymentManagement />} />
+            <Route path="/fee-management" element={<FeeManagement />} />
             <Route path="/department" element={role === 'Administrator' ? <ManageDepartments /> : <DepartmentManagement />} />
             <Route path="/faculty" element={role === 'Administrator' ? <ManageFaculties /> : <FacultyManagement />} />
             <Route path="/library" element={<LibraryManagement />} />
@@ -673,19 +745,22 @@ export default function DashboardRouter() {
 
             <Route path="/documents" element={<DocumentRepository />} />
             <Route path="/academic" element={<AcademicDashboard />} />
+            <Route path="/approve-results" element={<ResultApproval />} />
+            <Route path="/publish-results" element={<ResultPublication />} />
             <Route path="/messages" element={<MessagesPortal />} />
             <Route path="/alerts" element={<AlertsNotifications />} />
             <Route path="/calendar" element={<CalendarDashboard />} />
             <Route path="/live-lecture" element={<LiveLecture />} />
             <Route path="/result-upload" element={<LecturerResultUpload />} />
             <Route path="/continuous-assessment" element={<LecturerContinuousAssessment />} />
-            <Route path="/assignments" element={<LecturerAssignments />} />
+            <Route path="/assignments" element={role === 'Lecturer' ? <LecturerAssignments /> : <StudentAssignments />} />
             <Route path="/teaching-materials" element={<LecturerTeachingMaterials />} />
             <Route path="/video-upload" element={<LecturerVideoUpload />} />
             <Route path="/class-management" element={<LecturerClassManagement />} />
             <Route path="/announcements" element={<LecturerAnnouncements />} />
             <Route path="/research" element={<LecturerResearch />} />
             <Route path="/performance-analytics" element={<LecturerPerformanceAnalytics />} />
+            <Route path="/exams" element={<LecturerExamManagement />} />
           </Routes></motion.div></AnimatePresence>
         </div>
         <PortalFooter />

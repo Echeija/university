@@ -4,9 +4,12 @@ import { useNotification } from '../../../contexts/NotificationContext';
 import { 
   BadgeCheck, Download, Share2, ScanLine, UserCircle, QrCode, 
   RotateCw, Shield, Copy, Check, Printer, Building, Phone, Mail, 
-  Sparkles, ExternalLink, RefreshCw, Eye
+  Sparkles, ExternalLink, RefreshCw, Eye, Camera, X, CheckCircle2, 
+  AlertCircle, Timer, RefreshCcw
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import { storage } from '../../../lib/firebase';
+import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 
 interface StudentProfile {
   id: number;
@@ -58,6 +61,19 @@ export default function DigitalStudentID() {
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [qrToken, setQrToken] = useState(Date.now().toString(36));
 
+  // Webcam Capture Modal State
+  const [showWebcamModal, setShowWebcamModal] = useState(false);
+  const [isCameraStarting, setIsCameraStarting] = useState(false);
+  const [capturedDataUrl, setCapturedDataUrl] = useState<string | null>(null);
+  const [isSavingPhoto, setIsSavingPhoto] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [useTimer, setUseTimer] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
   const { user, token } = useAuth();
   const { notify } = useNotification();
   const cardRef = useRef<HTMLDivElement>(null);
@@ -65,6 +81,15 @@ export default function DigitalStudentID() {
   useEffect(() => {
     fetchProfile();
   }, [token]);
+
+  // Clean up media stream on unmount
+  useEffect(() => {
+    return () => {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [stream]);
 
   const fetchProfile = async () => {
     try {
@@ -106,6 +131,142 @@ export default function DigitalStudentID() {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Webcam Controls
+  const startCamera = async () => {
+    setShowWebcamModal(true);
+    setIsCameraStarting(true);
+    setCameraError(null);
+    setCapturedDataUrl(null);
+
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { 
+          facingMode: 'user', 
+          width: { ideal: 640 }, 
+          height: { ideal: 640 } 
+        }
+      });
+      setStream(mediaStream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+      }
+    } catch (err: any) {
+      console.log("Camera access error:", err?.message || err);
+      setCameraError(err.message || 'Could not access webcam. Please check browser permissions.');
+    } finally {
+      setIsCameraStarting(false);
+    }
+  };
+
+  const stopCamera = () => {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      setStream(null);
+    }
+    setShowWebcamModal(false);
+    setCapturedDataUrl(null);
+    setCountdown(null);
+    setCameraError(null);
+  };
+
+  const capturePhoto = () => {
+    if (useTimer) {
+      setCountdown(3);
+      const interval = setInterval(() => {
+        setCountdown(prev => {
+          if (prev === 1) {
+            clearInterval(interval);
+            takeSnapshot();
+            return null;
+          }
+          return prev ? prev - 1 : null;
+        });
+      }, 1000);
+    } else {
+      takeSnapshot();
+    }
+  };
+
+  const takeSnapshot = () => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+
+      const size = Math.min(video.videoWidth || 640, video.videoHeight || 640);
+      canvas.width = size;
+      canvas.height = size;
+
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        // Center crop square snapshot
+        const startX = (video.videoWidth - size) / 2;
+        const startY = (video.videoHeight - size) / 2;
+        ctx.drawImage(video, startX, startY, size, size, 0, 0, size, size);
+
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        setCapturedDataUrl(dataUrl);
+      }
+    }
+  };
+
+  const retakePhoto = () => {
+    setCapturedDataUrl(null);
+  };
+
+  const saveCapturedPhoto = async () => {
+    if (!capturedDataUrl) return;
+
+    setIsSavingPhoto(true);
+    let finalPhotoUrl = capturedDataUrl;
+
+    try {
+      // 1. Attempt upload to Firebase Storage
+      try {
+        const filename = `profiles/idcard_${user?.id || 'student'}_${Date.now()}.jpg`;
+        const storageRef = ref(storage, filename);
+        await uploadString(storageRef, capturedDataUrl, 'data_url');
+        finalPhotoUrl = await getDownloadURL(storageRef);
+      } catch (fbErr) {
+        console.warn("Firebase Storage upload fallback to base64 data URL:", fbErr);
+      }
+
+      // 2. Persist in backend database
+      const res = await fetch('/api/student/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ profilePicture: finalPhotoUrl })
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to update student profile picture in database');
+      }
+
+      // 3. Update local state immediately
+      setProfile(prev => prev ? { ...prev, profilePicture: finalPhotoUrl } : null);
+
+      notify({
+        title: 'Digital ID Photo Updated!',
+        message: 'Your new webcam photo has been saved and applied to your Digital ID Pass.',
+        type: 'success'
+      });
+
+      stopCamera();
+
+    } catch (err: any) {
+      console.error(err);
+      notify({
+        title: 'Error Saving Photo',
+        message: err.message || 'Could not save new ID photo. Please try again.',
+        type: 'error'
+      });
+    } finally {
+      setIsSavingPhoto(false);
     }
   };
 
@@ -192,7 +353,7 @@ export default function DigitalStudentID() {
               <RotateCw className="w-4 h-4 text-emerald-600" /> Card Display View
             </h3>
             
-            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-900 rounded-xl text-xs font-bold">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-900 rounded-xl text-xs font-bold">
               <button
                 onClick={() => setIsFlipped(false)}
                 className={`py-2 px-3 rounded-lg transition-all ${
@@ -282,6 +443,22 @@ export default function DigitalStudentID() {
               </button>
             </div>
           </div>
+
+          {/* Webcam ID Photo Capture Card */}
+          <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white p-5 rounded-2xl border border-slate-700 shadow-sm space-y-3">
+            <h3 className="font-bold text-sm flex items-center gap-2 text-emerald-400">
+              <Camera className="w-4 h-4 text-emerald-400" /> Webcam ID Photo Capture
+            </h3>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Capture a new portrait photo using your webcam to immediately update your digital ID card and portal profile.
+            </p>
+            <button
+              onClick={startCamera}
+              className="w-full py-2.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-md shrink-0"
+            >
+              <Camera className="w-4 h-4" /> Open Webcam Camera
+            </button>
+          </div>
         </div>
 
         {/* Right Digital Card Display Stage */}
@@ -330,15 +507,29 @@ export default function DigitalStudentID() {
                   {/* Body Content */}
                   <div className="p-6 flex flex-col items-center">
                     
-                    {/* Photo with Verified Badge */}
-                    <div className="relative mb-4">
-                      <div className="w-28 h-28 rounded-2xl overflow-hidden border-4 border-slate-100 dark:border-slate-800 shadow-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                    {/* Photo with Verified Badge & Webcam Trigger */}
+                    <div 
+                      className="relative mb-4 group/photo cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation(); // prevent card flip
+                        startCamera();
+                      }}
+                      title="Click to capture photo via webcam"
+                    >
+                      <div className="w-28 h-28 rounded-2xl overflow-hidden border-4 border-slate-100 dark:border-slate-800 shadow-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center relative">
                         {profile.profilePicture ? (
                           <img src={profile.profilePicture} alt={profile.name} className="w-full h-full object-cover" />
                         ) : (
                           <UserCircle className="w-20 h-20 text-slate-400" />
                         )}
+
+                        {/* Hover Overlay */}
+                        <div className="absolute inset-0 bg-slate-900/70 opacity-0 group-hover/photo:opacity-100 transition-opacity flex flex-col items-center justify-center text-white text-[10px] font-bold gap-1 p-1 text-center">
+                          <Camera className="w-6 h-6 text-emerald-400 animate-pulse" />
+                          <span>Update Photo</span>
+                        </div>
                       </div>
+
                       <div className="absolute -bottom-2 -right-2 bg-emerald-500 text-white p-1 rounded-full border-2 border-white dark:border-slate-900 shadow-sm" title="Identity Verified">
                         <BadgeCheck className="w-4 h-4" />
                       </div>
@@ -516,6 +707,154 @@ export default function DigitalStudentID() {
           </div>
         </div>
       )}
+
+      {/* WEBCAM PHOTO CAPTURE MODAL */}
+      {showWebcamModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 text-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl flex flex-col animate-in fade-in zoom-in-95">
+            
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-900/80">
+              <div>
+                <h3 className="font-extrabold text-base flex items-center gap-2 text-white">
+                  <Camera className="w-5 h-5 text-emerald-400" />
+                  Digital ID Webcam Capture
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Position your face clearly within the oval frame for campus ID card compliance.
+                </p>
+              </div>
+              <button
+                onClick={stopCamera}
+                className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Video / Photo Preview Stage */}
+            <div className="relative bg-black aspect-square w-full flex items-center justify-center overflow-hidden">
+              {cameraError ? (
+                <div className="p-8 text-center space-y-4 max-w-xs">
+                  <AlertCircle className="w-12 h-12 text-rose-500 mx-auto" />
+                  <p className="text-sm font-semibold text-rose-300">{cameraError}</p>
+                  <button
+                    onClick={startCamera}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-xl border border-slate-600 transition-all inline-flex items-center gap-2"
+                  >
+                    <RefreshCcw className="w-3.5 h-3.5" /> Retry Camera Stream
+                  </button>
+                </div>
+              ) : capturedDataUrl ? (
+                /* Captured Preview Image */
+                <div className="relative w-full h-full flex items-center justify-center">
+                  <img src={capturedDataUrl} alt="Captured ID Snapshot" className="w-full h-full object-cover" />
+                  
+                  {/* Photo Quality Badge */}
+                  <div className="absolute top-4 left-4 bg-emerald-500/90 text-slate-950 text-[11px] font-extrabold px-3 py-1 rounded-full backdrop-blur-sm flex items-center gap-1.5 shadow-md">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> ID Portrait Ready
+                  </div>
+                </div>
+              ) : (
+                /* Live Camera Feed with Alignment Frame */
+                <div className="relative w-full h-full flex items-center justify-center bg-slate-950">
+                  {isCameraStarting && (
+                    <div className="absolute inset-0 z-10 bg-slate-950 flex flex-col items-center justify-center text-slate-400 gap-3">
+                      <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                      <span className="text-xs font-bold">Starting Webcam Feed...</span>
+                    </div>
+                  )}
+
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover transform -scale-x-100"
+                  />
+                  <canvas ref={canvasRef} className="hidden" />
+
+                  {/* ID Portrait Oval Alignment Mask */}
+                  <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
+                    <div className="w-48 h-60 border-4 border-emerald-400/80 border-dashed rounded-full shadow-[0_0_0_9999px_rgba(15,23,42,0.7)] flex items-center justify-center">
+                      <span className="text-[10px] uppercase font-bold tracking-widest text-emerald-300/80 bg-slate-900/80 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                        Face Alignment
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Countdown Timer Overlay */}
+                  {countdown !== null && (
+                    <div className="absolute inset-0 z-20 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center">
+                      <span className="text-7xl font-black text-emerald-400 animate-ping">
+                        {countdown}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Controls Bar */}
+            <div className="p-5 bg-slate-900 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+              {capturedDataUrl ? (
+                <>
+                  <button
+                    onClick={retakePhoto}
+                    disabled={isSavingPhoto}
+                    className="w-full sm:w-auto py-2.5 px-5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 border border-slate-700"
+                  >
+                    <RefreshCcw className="w-4 h-4" /> Retake Photo
+                  </button>
+
+                  <button
+                    onClick={saveCapturedPhoto}
+                    disabled={isSavingPhoto}
+                    className="w-full sm:w-auto py-2.5 px-6 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
+                  >
+                    {isSavingPhoto ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                        <span>Updating ID Pass...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Save & Apply to ID Pass</span>
+                      </>
+                    )}
+                  </button>
+                </>
+              ) : (
+                <>
+                  {/* Timer Option */}
+                  <button
+                    onClick={() => setUseTimer(!useTimer)}
+                    disabled={isCameraStarting || Boolean(cameraError)}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                      useTimer
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                        : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+                    }`}
+                  >
+                    <Timer className="w-3.5 h-3.5" />
+                    <span>3s Timer {useTimer ? 'ON' : 'OFF'}</span>
+                  </button>
+
+                  <button
+                    onClick={capturePhoto}
+                    disabled={isCameraStarting || Boolean(cameraError) || countdown !== null}
+                    className="w-full sm:w-auto py-3 px-8 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-black rounded-xl text-xs transition-transform active:scale-95 shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span>{useTimer ? 'Start Timer & Snap' : 'Capture Photo Now'}</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       </div>
 
       {/* DEDICATED PRINT SHEET - Only visible when printing */}
@@ -562,7 +901,7 @@ export default function DigitalStudentID() {
         </div>
 
         {/* ID Cards Cutout Container (Side-by-Side Front and Back) */}
-        <div className="grid grid-cols-2 gap-6 items-start mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start mb-8">
           
           {/* FRONT CARD PRINT CUTOUT */}
           <div className="relative border-2 border-dashed border-slate-300 p-2.5 rounded-3xl bg-slate-50/50">

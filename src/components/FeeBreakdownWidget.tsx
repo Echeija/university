@@ -78,7 +78,7 @@ export default function FeeBreakdownWidget() {
             </ResponsiveContainer>
           </div>
           
-          <div className="w-full mt-4 grid grid-cols-2 gap-4 text-center">
+          <div className="w-full mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-center">
             <div className="bg-emerald-50 dark:bg-emerald-900/20 p-3 rounded-xl border border-emerald-100 dark:border-emerald-800/30">
               <p className="text-xs text-emerald-600 dark:text-emerald-400 font-bold uppercase tracking-wider mb-1">Total Paid</p>
               <p className="text-lg font-black text-emerald-700 dark:text-emerald-300">{formatCurrency(balanceInfo.totalPaid)}</p>

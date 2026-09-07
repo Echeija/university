@@ -1,3 +1,4 @@
+import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { BookOpen, FileText, Video, PlayCircle, MoreVertical, Download, X, Upload } from 'lucide-react';
 import { useState, useRef } from 'react';

@@ -11,6 +11,7 @@ import { HelmetProvider } from 'react-helmet-async';
 import FeedbackButton from './components/FeedbackButton';
 import EmergencyBroadcastReceiver from './components/EmergencyBroadcastReceiver';
 import AnimatedRoutes from './components/AnimatedRoutes';
+import IdleTimeoutHandler from './components/IdleTimeoutHandler';
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
             <TopProgressBar />
             <AnimatedRoutes />
             <FeedbackButton />
+            <IdleTimeoutHandler />
             </Router>
           </AuthProvider>
         </NotificationProvider>

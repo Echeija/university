@@ -130,7 +130,7 @@ export default function ClinicAppointmentWidget() {
             <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
               Select Time
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               {timeSlots.map(time => (
                 <div
                   key={time}

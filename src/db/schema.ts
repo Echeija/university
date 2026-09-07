@@ -1,4 +1,5 @@
-import { pgTable, text, integer, serial, timestamp, doublePrecision, boolean, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, serial, timestamp, doublePrecision, boolean, jsonb, uniqueIndex, index, unique } from 'drizzle-orm/pg-core';
+import { relations } from 'drizzle-orm';
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -37,6 +38,10 @@ export const courses = pgTable('courses', {
   departmentId: integer('department_id').references(() => departments.id, { onDelete: 'cascade' }),
   semester: text('semester').notNull(), // e.g., '1st', '2nd'
   prerequisites: text('prerequisites'), // Comma-separated course codes
+  type: text('type').default('Core').notNull(),
+  contributesToGpa: boolean('contributes_to_gpa').default(true).notNull(),
+  contributesToCgpa: boolean('contributes_to_cgpa').default(true).notNull(),
+  contributesToCreditUnits: boolean('contributes_to_credit_units').default(true).notNull(),
 });
 
 export const studentCourses = pgTable('student_courses', {
@@ -51,10 +56,33 @@ export const results = pgTable('results', {
   id: serial('id').primaryKey(),
   studentId: integer('student_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   courseId: integer('course_id').references(() => courses.id, { onDelete: 'cascade' }).notNull(),
-  score: doublePrecision('score').notNull(),
-  grade: text('grade').notNull(),
+  academicSession: text('academic_session').notNull().default('2025/2026'),
   semester: text('semester').notNull(),
-});
+  caScore: doublePrecision('ca_score'),
+  caBreakdown: jsonb('ca_breakdown'),
+  examScore: doublePrecision('exam_score'),
+  score: doublePrecision('score'),
+  grade: text('grade'),
+  gradePoint: doublePrecision('grade_point'),
+  qualityPoint: doublePrecision('quality_point'),
+  status: text('status', { enum: ['draft', 'submitted', 'returned', 'hod_approved', 'registrar_approved', 'published', 'locked'] }).notNull().default('draft'),
+  returnReason: text('return_reason'),
+  approvedByHodId: integer('approved_by_hod_id').references(() => users.id),
+  approvedByRegistrarId: integer('approved_by_registrar_id').references(() => users.id),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  studentCourseSessionUnique: uniqueIndex('results_student_course_session_idx').on(table.studentId, table.courseId, table.academicSession, table.semester),
+  statusIdx: index('results_status_idx').on(table.status),
+  studentIdx: index('results_student_idx').on(table.studentId)
+}));
+
+export const resultsRelations = relations(results, ({ one, many }) => ({
+  student: one(users, { fields: [results.studentId], references: [users.id], relationName: 'studentResults' }),
+  course: one(courses, { fields: [results.courseId], references: [courses.id] }),
+  amendments: many(resultAmendments),
+  auditLogs: many(resultAuditLogs)
+}));
 
 export const feeSettings = pgTable("fee_settings", {
   id: serial('id').primaryKey(),
@@ -728,3 +756,184 @@ export const cmsNewsEvents = pgTable('cms_news_events', {
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
+
+export const assignments = pgTable('assignments', {
+  id: serial('id').primaryKey(),
+  courseId: integer('course_id').references(() => courses.id).notNull(),
+  lecturerId: integer('lecturer_id').references(() => users.id).notNull(),
+  title: text('title').notNull(),
+  description: text('description').notNull(),
+  dueDate: timestamp('due_date').notNull(),
+  totalMarks: integer('total_marks').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const assignmentSubmissions = pgTable('assignment_submissions', {
+  id: serial('id').primaryKey(),
+  assignmentId: integer('assignment_id').references(() => assignments.id).notNull(),
+  studentId: integer('student_id').references(() => users.id).notNull(),
+  fileUrl: text('file_url').notNull(),
+  fileName: text('file_name').notNull(),
+  submittedAt: timestamp('submitted_at').defaultNow().notNull(),
+  marksAwarded: integer('marks_awarded'),
+  feedback: text('feedback'),
+  status: text('status', { enum: ['submitted', 'graded', 'late'] }).notNull(),
+});
+
+
+export const gradingRules = pgTable('grading_rules', {
+  id: serial('id').primaryKey(),
+  minScore: doublePrecision('min_score').notNull(),
+  maxScore: doublePrecision('max_score').notNull(),
+  grade: text('grade').notNull(),
+  gradePoint: doublePrecision('grade_point').notNull(),
+  description: text('description').notNull(),
+  isPass: boolean('is_pass').notNull().default(true),
+}, (table) => ({
+  gradeUnique: uniqueIndex('grading_rules_grade_idx').on(table.grade)
+}));
+
+export const semesterGpaRecords = pgTable('semester_gpa_records', {
+  id: serial('id').primaryKey(),
+  studentId: integer('student_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  academicSession: text('academic_session').notNull(),
+  semester: text('semester').notNull(),
+  totalCreditUnits: integer('total_credit_units').notNull(),
+  totalEarnedCredits: integer('total_earned_credits').notNull().default(0),
+  totalQualityPoints: doublePrecision('total_quality_points').notNull(),
+  gpa: doublePrecision('gpa').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  semesterGpaStudentSessionUnique: uniqueIndex('semester_gpa_student_session_idx').on(table.studentId, table.academicSession, table.semester)
+}));
+
+export const semesterGpaRecordsRelations = relations(semesterGpaRecords, ({ one }) => ({
+  student: one(users, { fields: [semesterGpaRecords.studentId], references: [users.id] })
+}));
+
+export const cgpaRecords = pgTable('cgpa_records', {
+  id: serial('id').primaryKey(),
+  studentId: integer('student_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  totalCreditUnits: integer('total_credit_units').notNull(),
+  totalEarnedCredits: integer('total_earned_credits').notNull().default(0),
+  totalQualityPoints: doublePrecision('total_quality_points').notNull(),
+  cgpa: doublePrecision('cgpa').notNull(),
+  academicStanding: text('academic_standing').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  cgpaStudentUnique: uniqueIndex('cgpa_student_idx').on(table.studentId)
+}));
+
+export const cgpaRecordsRelations = relations(cgpaRecords, ({ one }) => ({
+  student: one(users, { fields: [cgpaRecords.studentId], references: [users.id] })
+}));
+
+export const resultAmendments = pgTable('result_amendments', {
+  id: serial('id').primaryKey(),
+  resultId: integer('result_id').references(() => results.id, { onDelete: 'cascade' }).notNull(),
+  requestedById: integer('requested_by_id').references(() => users.id).notNull(),
+  oldCa: doublePrecision('old_ca'),
+  newCa: doublePrecision('new_ca'),
+  oldExam: doublePrecision('old_exam'),
+  newExam: doublePrecision('new_exam'),
+  reason: text('reason').notNull(),
+  status: text('status', { enum: ['pending', 'approved', 'rejected'] }).notNull().default('pending'),
+  approvedById: integer('approved_by_id').references(() => users.id),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  statusIdx: index('result_amendments_status_idx').on(table.status),
+  resultIdx: index('result_amendments_result_idx').on(table.resultId)
+}));
+
+export const resultAmendmentsRelations = relations(resultAmendments, ({ one }) => ({
+  result: one(results, { fields: [resultAmendments.resultId], references: [results.id] }),
+  requestedBy: one(users, { fields: [resultAmendments.requestedById], references: [users.id], relationName: 'amendmentRequestedBy' }),
+  approvedBy: one(users, { fields: [resultAmendments.approvedById], references: [users.id], relationName: 'amendmentApprovedBy' })
+}));
+
+export const resultAuditLogs = pgTable('result_audit_logs', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  role: text('role').notNull(),
+  studentId: integer('student_id').references(() => users.id).notNull(),
+  courseId: integer('course_id').references(() => courses.id).notNull(),
+  action: text('action').notNull(),
+  oldCa: doublePrecision('old_ca'),
+  newCa: doublePrecision('new_ca'),
+  oldExam: doublePrecision('old_exam'),
+  newExam: doublePrecision('new_exam'),
+  oldGrade: text('old_grade'),
+  newGrade: text('new_grade'),
+  reason: text('reason'),
+  ipAddress: text('ip_address'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  studentIdx: index('result_audit_student_idx').on(table.studentId),
+  courseIdx: index('result_audit_course_idx').on(table.courseId)
+}));
+
+export const resultAuditLogsRelations = relations(resultAuditLogs, ({ one }) => ({
+  user: one(users, { fields: [resultAuditLogs.userId], references: [users.id], relationName: 'auditLogUser' }),
+  student: one(users, { fields: [resultAuditLogs.studentId], references: [users.id], relationName: 'auditLogStudent' }),
+  course: one(courses, { fields: [resultAuditLogs.courseId], references: [courses.id] })
+}));
+
+export const transcripts = pgTable('transcripts', {
+  id: serial('id').primaryKey(),
+  studentId: integer('student_id').references(() => users.id).notNull(),
+  generatedById: integer('generated_by_id').references(() => users.id).notNull(),
+  verificationCode: text('verification_code').unique().notNull(),
+  status: text('status', { enum: ['valid', 'revoked'] }).notNull().default('valid'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+
+export const examSchedules = pgTable('exam_schedules', {
+  id: serial('id').primaryKey(),
+  courseId: integer('course_id').references(() => courses.id, { onDelete: 'cascade' }).notNull(),
+  examDate: text('exam_date').notNull(),
+  startTime: text('start_time').notNull(),
+  endTime: text('end_time').notNull(),
+  venue: text('venue').notNull(),
+  invigilatorId: integer('invigilator_id').references(() => users.id),
+  instructions: text('instructions'),
+  status: text('status').default('Scheduled').notNull(), // 'Scheduled', 'Completed', 'Cancelled'
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const academicSessions = pgTable('academic_sessions', {
+  id: serial('id').primaryKey(),
+  name: text('name').unique().notNull(), // e.g., "2023/2024"
+  startDate: timestamp('start_date'),
+  endDate: timestamp('end_date'),
+  isActive: boolean('is_active').default(false).notNull(),
+  isAdmissionActive: boolean('is_admission_active').default(false).notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const academicSessionsRelations = relations(academicSessions, ({ many }) => ({
+  semesters: many(semesters),
+}));
+
+export const semesters = pgTable('semesters', {
+  id: serial('id').primaryKey(),
+  sessionId: integer('session_id').references(() => academicSessions.id, { onDelete: 'cascade' }).notNull(),
+  name: text('name').notNull(), // e.g., "First", "Second"
+  startDate: timestamp('start_date'),
+  endDate: timestamp('end_date'),
+  isActive: boolean('is_active').default(false).notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (table) => {
+  return {
+    sessionNameUnique: uniqueIndex('session_semester_name_idx').on(table.sessionId, table.name)
+  }
+});
+
+export const semestersRelations = relations(semesters, ({ one }) => ({
+  session: one(academicSessions, {
+    fields: [semesters.sessionId],
+    references: [academicSessions.id],
+  }),
+}));

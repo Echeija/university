@@ -51,7 +51,7 @@ export default function LMSGrades({ role }: { role: string | undefined }) {
 
   useEffect(() => {
     fetchGrades();
-  }, [role, user]);
+  }, [role, user?.id]);
 
   const handleSaveGrade = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -188,7 +188,7 @@ export default function LMSGrades({ role }: { role: string | undefined }) {
               No grades available yet.
             </div>
           ) : (
-            <table className="w-full text-left text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-left text-sm">
               <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700">
                 <tr>
                   <th className="px-6 py-4 font-bold text-slate-700 dark:text-slate-300">Assignment</th>
@@ -213,7 +213,7 @@ export default function LMSGrades({ role }: { role: string | undefined }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           )}
         </div>
       </div>
@@ -260,7 +260,7 @@ export default function LMSGrades({ role }: { role: string | undefined }) {
             No student grades recorded yet.
           </div>
         ) : (
-          <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto"><table className="w-full text-left text-sm">
             <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700">
               <tr>
                 <th className="px-6 py-4 font-bold text-slate-700 dark:text-slate-300">Student</th>
@@ -296,7 +296,7 @@ export default function LMSGrades({ role }: { role: string | undefined }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </div>
 
@@ -311,7 +311,7 @@ export default function LMSGrades({ role }: { role: string | undefined }) {
             </div>
             
             <form onSubmit={handleSaveGrade} className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Student ID *</label>
                   <input
@@ -333,7 +333,7 @@ export default function LMSGrades({ role }: { role: string | undefined }) {
                 </div>
               </div>
               
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Assignment Name *</label>
                   <input
@@ -359,7 +359,7 @@ export default function LMSGrades({ role }: { role: string | undefined }) {
                 </div>
               </div>
               
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Points Earned *</label>
                   <input
